@@ -1,0 +1,34 @@
+cff-version: 1.2.0
+title: "CF2-GET: Conditional Flow for Counterfactual Symbolic Music Genre Transfer"
+message: "If you use this software, please cite the paper listed under preferred-citation."
+type: software
+version: 1.0.0
+license: MIT
+authors:
+  - family-names: Zhao
+    given-names: Ziyuan
+    affiliation: Mohamed bin Zayed University of Artificial Intelligence
+  - family-names: Yu
+    given-names: Ruiji
+    affiliation: Mohamed bin Zayed University of Artificial Intelligence
+  - family-names: Hou
+    given-names: Dylan Xinming
+    affiliation: Mohamed bin Zayed University of Artificial Intelligence
+  - family-names: Xia
+    given-names: Gus
+    affiliation: Mohamed bin Zayed University of Artificial Intelligence
+preferred-citation:
+  type: conference-paper
+  title: "CF2-GET: Conditional Flow for Counterfactual Symbolic Music Genre Transfer"
+  authors:
+    - family-names: Zhao
+      given-names: Ziyuan
+    - family-names: Yu
+      given-names: Ruiji
+    - family-names: Hou
+      given-names: Dylan Xinming
+    - family-names: Xia
+      given-names: Gus
+  collection-title: "IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+  year: 2027
+  notes: "Submitted"

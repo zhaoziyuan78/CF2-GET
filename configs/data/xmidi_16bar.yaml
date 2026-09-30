@@ -1,0 +1,10 @@
+# 16-bar XMIDI windows (hop 8) with the six-genre CLaMP3 label overlay published by
+# `scripts/prepare_xmidi_16bar.py label-publish`. The overlay's index.metadata.json
+# supplies the matching dataset card and manifest.
+defaults:
+  - xmidi
+  - _self_
+
+segmentation: {num_bars: 16, hop_bars: 8}
+latent_index: ${paths.data_root}/labels/xmidi_16bar/q30/index.parquet
+auto_conditioning_size: true

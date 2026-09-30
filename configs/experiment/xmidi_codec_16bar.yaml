@@ -1,0 +1,30 @@
+# @package _global_
+# Stage 2 of the codec: the 16-bar chunk VAE (two 8-bar chunks, 128 x 512 latent),
+# initialized from the stage-1 checkpoint and fine-tuned for 1,000 steps on 8 GPUs
+# (global batch 64) on the 16-bar windows. Positions beyond the stage-1 context are
+# expanded by `cfmusic.codec.warm_start`.
+defaults:
+  - override /data: xmidi
+  - override /codec: xmidi_16bar_chunk_vae
+experiment: {name: xmidi_codec_16bar, stage: codec}
+data:
+  segmentation: {num_bars: 16, hop_bars: 8}
+tokenizer: {max_sequence_length: 5120}
+codec:
+  kl: {warmup_steps: 0}
+  training:
+    initialize_from: ${paths.checkpoints_dir}/xmidi_codec_8bar/codec/xmidi/last.pt
+    max_steps: 1000
+    max_epochs: null
+    learning_rate: 3.0e-6
+    warmup_steps: 50
+    batch_size: 8
+    gradient_accumulation: 1
+    dataloader_workers: 2
+    checkpoint_interval: 250
+    validation_interval: 0
+    ema: {enabled: false}
+latent_cache:
+  batch_size_per_gpu: 16
+  dataloader_workers: 32
+  prefetch_factor: 2

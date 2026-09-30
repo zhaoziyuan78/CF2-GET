@@ -1,0 +1,13 @@
+# @package _global_
+# Ablation: the main OT-CFM recipe trained from scratch without the HSIC exogeneity term.
+defaults:
+  - xmidi_otcfm_hsic
+  - _self_
+
+experiment:
+  name: xmidi_otcfm_no_hsic
+
+transport:
+  exogeneity:
+    enabled: false
+    hsic_weight: 0.0

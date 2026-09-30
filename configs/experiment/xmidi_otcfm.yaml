@@ -1,0 +1,10 @@
+# @package _global_
+defaults:
+  - xmidi_cfm
+  - _self_
+experiment:
+  name: xmidi_otcfm
+transport:
+  flow:
+    path: ot
+    ot: {solver: hungarian, cost_projection_dim: 128, regularization: 0.05}

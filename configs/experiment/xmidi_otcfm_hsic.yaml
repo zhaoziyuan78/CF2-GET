@@ -1,0 +1,28 @@
+# @package _global_
+defaults:
+  - xmidi_otcfm
+  - _self_
+
+experiment:
+  name: xmidi_otcfm_hsic
+
+transport:
+  # Main method: OT-CFM plus warmup HSIC between unguided factual abductions and genre labels.
+  exogeneity:
+    enabled: true
+    hsic_weight: 0.002
+    prior_weight: 0.0
+    cross_class_mmd_weight: 0.0
+    cross_class_swd_weight: 0.0
+    warmup_steps: 5000
+    ramp_steps: 5000
+    interval: 8
+    offset: 4
+    inverse_steps: 4
+    samples_per_style: 4
+    projection_dim: 128
+    projection_views: 3
+    projection_seed: 2026
+    projection_refresh_interval: 1
+    block_tokens: 8
+    block_channels: 32

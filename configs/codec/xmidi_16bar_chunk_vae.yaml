@@ -1,0 +1,14 @@
+defaults:
+  - transformer_vae
+
+type: bar_chunk_vae
+latent_tokens: 128
+latent_dim: 512
+chunk_bars: 8
+total_bars: 16
+chunk_max_sequence_length: 5120
+max_sequence_length: 10240
+training:
+  batch_size: 8
+  gradient_accumulation: 1
+inference: {batch_size: 4, precision: bf16}

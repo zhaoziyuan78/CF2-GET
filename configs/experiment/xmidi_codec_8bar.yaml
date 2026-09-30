@@ -1,0 +1,8 @@
+# @package _global_
+# Stage 1 of the codec: the 8-bar BEAT Transformer VAE, trained from scratch on the
+# 8-bar/hop-4 XMIDI manifest for 8 epochs with a global batch of 128 (4 GPUs x 32 per GPU;
+# scripts/run_xmidi_16bar.sh sets codec.training.batch_size = 128 / GPUS).
+defaults:
+  - override /data: xmidi
+  - override /codec: transformer_vae
+experiment: {name: xmidi_codec_8bar, stage: codec}

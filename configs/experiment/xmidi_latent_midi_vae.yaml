@@ -1,0 +1,20 @@
+# @package _global_
+defaults:
+  - xmidi_cfm
+  - override /transport: latent_midi_vae
+  - _self_
+experiment:
+  name: xmidi_latent_midi_vae
+transport:
+  classifier_free_guidance: false
+  condition_dropout: 0.0
+  prediction_guidance_scale: 1.0
+  source_repulsion_scale: 0.0
+  training:
+    batch_size: 128
+    # Validation-only epoch early stopping; the best checkpoint is evaluated.
+    early_stopping: {patience: 5, min_epochs: 10, min_steps: 3000, relative_delta: 0.001, absolute_delta: 0.0001}
+  sampling: {balance_by_style: false}
+  roundtrip: {enabled: false, weight: 0.0}
+counterfactual:
+  transport_weights: raw

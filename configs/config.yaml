@@ -1,0 +1,100 @@
+defaults:
+  - paths: default
+  - download: default
+  - data: xmidi
+  - tokenizer: beat
+  - codec: transformer_vae
+  - transport: cfm
+  - _self_
+  # Experiment-specific sampling/evaluation settings must override root defaults.
+  - experiment: xmidi_otcfm_hsic
+
+seed: 0
+datasets: [xmidi]
+codec_checkpoint: null
+transport_checkpoint: null
+evaluator_checkpoint: null
+resume: false
+resume_from: null
+task: genre
+preprocessing:
+  workers: 0  # auto: min(8, CPUs available to this job)
+  worker_chunksize: 32
+latent_cache:
+  # Print sample count and exact tensor storage without hashing/encoding/writing shards.
+  plan_only: false
+  # Existing matching caches are reused; replacing another cache requires explicit opt-in.
+  overwrite: false
+  # Reuse validated, completed rank partitions after an interrupted 4-GPU run.
+  resume: true
+  samples_per_shard: 8192
+  dtype: float16
+  # Encoder-only batch size; experiment configs lower it for the 16-bar chunk VAE.
+  batch_size_per_gpu: 384
+  codec_weights: raw
+  verify_after_write: false
+  dataloader_workers: 32  # total across all torchrun ranks
+  prefetch_factor: 4
+  midi_cache_size: 16
+  # Spawn avoids forking worker pools after CUDA initialization. A wedged
+  # MIDI/NFS read fails promptly and is propagated to every rank.
+  dataloader_timeout_seconds: 180
+  rank_stall_timeout_seconds: 300
+  # Pack similarly sized source-MIDI groups so the encoder avoids unrelated
+  # long padding without forcing workers to parse the same MIDI repeatedly.
+  length_bucketing: true
+  # Filesystem synchronization avoids NCCL watchdog failures while one rank is
+  # still encoding a slow partition or rank 0 is publishing a large cache.
+  synchronization_timeout_seconds: 7200
+counterfactual:
+  split: test
+  require_all_transitions: false
+  sampling_weights_file: null
+  # Select explicitly after comparing raw/EMA validation metrics.
+  transport_weights: raw
+  source_sampling_policy: balanced
+  target_policy: all_other
+  explicit_pairs: []
+  # Ten unique songs per source style and five targets produce at most 300
+  # ordered XMIDI transitions, instead of scanning every cached segment.
+  targets_per_source: 5
+  max_sources_per_style: 10
+  max_total_sources: 60
+  unique_sources: true
+  skip_existing: true
+  save_abducted_noise: true
+  target_batch_size: 8
+  decode_batch_size: 8
+  decode_length_multiplier: 1.1
+  show_decode_progress: true
+  deterministic_decode: true
+  factorial_intervention: genre
+evaluation:
+  artifact_noise_leakage: true
+  classifier:
+    enabled: ${oc.select:data.evaluation.trained_classifier,false}
+  clamp3:
+    enabled: ${oc.select:data.evaluation.clamp3,true}
+    repository: ${oc.env:CLAMP3_REPOSITORY,${paths.project_root}/external/clamp3}
+    python_executable: null
+    cache_dir: ${oc.env:CLAMP3_CACHE_DIR,${paths.project_root}/.cache/huggingface}
+    batch_size: 4
+    device: auto
+    style_template: "This is a piece of {style} music."
+    style_templates: null
+    relabel_config: null
+report:
+  experiments: []
+leakage:
+  split: test
+  samples_per_style: 200
+  batch_size: 32
+  projection_dim: 256
+license:
+  accept: false
+  acknowledge_unknown: false
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: ${paths.runs_dir}/${experiment.name}/${now:%Y-%m-%d_%H-%M-%S}

@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cf2-get"
+version = "1.0.0"
+description = "Shared-noise conditional transport for unpaired counterfactual MIDI genre transfer"
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+license = { text = "MIT" }
+authors = [
+  { name = "Ziyuan Zhao" },
+  { name = "Ruiji Yu" },
+  { name = "Dylan Xinming Hou" },
+  { name = "Gus Xia" },
+]
+dependencies = [
+  # Install the torch build matching your CUDA or ROCm driver first (see README).
+  "torch>=2.5",
+  "filelock>=3.13",
+  "gdown>=5.2",
+  "hydra-core>=1.3",
+  "joblib>=1.3",
+  "matplotlib>=3.8",
+  "miditoolkit>=1.0.1",
+  "mido>=1.3",
+  "numpy>=1.26",
+  "omegaconf>=2.3",
+  "pandas>=2.2",
+  "pyarrow>=15",
+  "requests>=2.31",
+  "scikit-learn>=1.4",
+  "scipy>=1.12",
+  "tabulate>=0.9",
+  "tensorboard>=2.16",
+  "tqdm>=4.66",
+  "transformers>=4.46,<5",
+  # Required by the official CLaMP3 code used for labels and evaluation.
+  "samplings==0.1.7",
+  "sentencepiece>=0.2",
+  "Unidecode>=1.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cfmusic"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"configs" = "cfmusic/configs"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["cfmusic"]

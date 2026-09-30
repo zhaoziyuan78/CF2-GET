@@ -1,0 +1,14 @@
+# @package _global_
+# The xmidi_ddim recipe plus OT-CFM's classifier-free guidance protocol: condition dropout
+# during training; unguided abduction and reconstruction; target CFG=4 at prediction.
+defaults:
+  - xmidi_ddim
+  - _self_
+experiment:
+  name: xmidi_ddim_cfg
+transport:
+  classifier_free_guidance: true
+  condition_dropout: 0.1
+  abduction_guidance_scale: 1.0
+  reconstruction_guidance_scale: 1.0
+  prediction_guidance_scale: 4.0

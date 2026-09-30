@@ -1,0 +1,7 @@
+defaults:
+  - latent_midi_vae
+  - _self_
+name: MIDI-VAE
+type: midi_vae
+model: {voices: 4, num_bars: 8}
+training: {batch_size: 32}

@@ -1,0 +1,10 @@
+# @package _global_
+defaults:
+  - xmidi_latent_midi_vae
+  - override /transport: midi_vae
+  - _self_
+experiment:
+  name: xmidi_midi_vae
+transport:
+  model: {num_bars: 16}
+  training: {batch_size: 32}

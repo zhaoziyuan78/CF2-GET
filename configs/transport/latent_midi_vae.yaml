@@ -1,0 +1,9 @@
+name: Latent-MIDI-VAE
+type: latent_midi_vae
+model: {latent_tokens: 64, latent_dim: 512, hidden_dim: 256, code_dim: 256, layers: 2}
+conditioning: {num_styles: 10, num_genres: 10, num_emotions: 11}
+loss: {beta: 0.001, style_weight: 0.1}
+solver: {num_steps: 1}
+training: {batch_size: 128, gradient_accumulation: 1, learning_rate: 0.0002, weight_decay: 0.0, max_steps: 50000, warmup_steps: 1000, gradient_clip_norm: 1.0, precision: fp32, checkpoint_interval: 1000, dataloader_workers: 2, log_interval: 10, validation_samples_per_style: 16, shard_cache_size: 4}
+classifier_free_guidance: false
+condition_dropout: 0.0

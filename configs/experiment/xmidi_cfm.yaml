@@ -1,0 +1,71 @@
+# @package _global_
+# Shared base of every transport/baseline experiment: 16-bar six-genre XMIDI, the 128 x 512
+# chunk-VAE latents, and the paired test protocol (2,000 test sources, one target each).
+defaults:
+  - override /data: xmidi_16bar
+  - override /codec: xmidi_16bar_chunk_vae
+  - override /transport: cfm
+experiment:
+  name: xmidi_cfm
+  stage: transport
+  checkpoint_subdir: transport
+tokenizer: {max_sequence_length: 5120}
+transport:
+  model:
+    latent_tokens: 128
+    slot_identity: true
+  flow: {path: independent, time_sampling: uniform}
+  training:
+    batch_size: null # resolved as current K * samples_per_class, not hard-coded six
+    max_steps: 50000
+    max_epochs: null
+    min_steps: 1
+    class_balance_exponent: 0.0
+    shard_cache_size: 8
+    validation_samples_per_style: 16
+  sampling:
+    balance_by_style: true
+    unique_song_per_batch: true
+    confidence_weighted: false
+    classes_per_batch: null
+    samples_per_class: 16
+  classifier_free_guidance: true
+  condition_dropout: 0.1
+  abduction_guidance_scale: 1.0
+  reconstruction_guidance_scale: 1.0
+  prediction_guidance_scale: 2.0
+  source_repulsion_scale: 0.0
+  condition_objective: {enabled: false, weight: 0.0}
+  roundtrip:
+    enabled: true
+    weight: 0.05
+    warmup_steps: 5000
+    ramp_steps: 5000
+    interval: 8
+    inverse_steps: 4
+    samples_per_batch: 16
+    cosine_weight: 0.1
+counterfactual:
+  # Independent leakage extraction supersedes per-generation noise dumps.
+  save_abducted_noise: false
+  split: test
+  source_sampling_policy: proportional
+  target_policy: proportional
+  require_all_transitions: true
+  # Test sources are drawn in proportion to the train-song genre distribution.
+  sampling_weights_file: ${paths.data_root}/labels/xmidi_16bar/source_labels.parquet
+  max_sources_per_style: 2000
+  max_total_sources: 2000
+  targets_per_source: 1
+  unique_sources: true
+  transport_weights: ema
+  show_decode_progress: false
+  # Decode up to the codec capacity (10,240 tokens) and audit EOS/bar completion.
+  full_decode_budget: true
+  audit_decode_completion: true
+evaluation:
+  artifact_noise_leakage: false
+  classifier: {enabled: false}
+  clamp3: {enabled: true, batch_size: 16}
+leakage: {samples_per_style: 200, batch_size: 32}
+report: {require_paired_cohort: true}
