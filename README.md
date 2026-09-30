@@ -73,12 +73,11 @@ Then open <http://localhost:8000>. While you preview on `localhost`, every empty
 
 The paper points to `https://zhaoziyuan78.github.io/CF2-GET/`, which is the Pages site of the `CF2-GET` repository.
 
-The MIDI examples are XMIDI excerpts and outputs derived from them. The code's MIT License does not cover them, so keep them out of the `main` branch and publish the page from its own branch:
+The MIDI examples are XMIDI excerpts and outputs derived from them. The code's MIT License does not cover them, so the page lives on its own `demo` branch, separate from the code on `main`:
 
-1. In the repo, create an empty branch for the site: `git switch --orphan gh-pages`.
-2. Copy the contents of this folder to the root of that branch (keep `.nojekyll`), commit and push.
-3. On GitHub: **Settings → Pages → Build and deployment → Deploy from a branch**, choose `gh-pages` and `/ (root)`.
-4. After a minute the page is live at the URL above.
+1. Push this folder to the `demo` branch: `git push -u origin demo`.
+2. On GitHub: **Settings → Pages → Build and deployment → Deploy from a branch**, choose `demo` and `/ (root)`.
+3. After a minute the page is live at the URL above.
 
 ## How playback works
 
