@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>CF²-GET Demo</title>
+  <meta name="description" content="Listening examples for CF²-GET: Conditional Flow for Counterfactual Symbolic Music Genre Transfer. Compare CF²-GET with MIDI-VAE, Latent MIDI-VAE and DDIM Inversion on 16-bar XMIDI passages.">
+  <meta property="og:title" content="CF²-GET · Counterfactual Symbolic Music Genre Transfer">
+  <meta property="og:description" content="Listen to 16-bar genre transfers from CF²-GET and three baselines.">
+  <meta property="og:type" content="website">
+  <meta name="theme-color" content="#EEF2F0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0D1312" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400..600;1,8..60,400..500&display=swap">
+  <link rel="stylesheet" href="assets/style.css">
+
+  <!-- Apply a saved light/dark choice before first paint -->
+  <script>
+    try { var t = localStorage.getItem('cf2get-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+  </script>
+</head>
+<body>
+
+<a class="skip" href="#examples">Skip to the listening examples</a>
+
+<!-- ───────────────────────── Top bar ───────────────────────── -->
+<header class="topbar">
+  <div class="topbar__inner">
+    <a class="wordmark" href="#top" aria-label="CF²-GET, back to top">CF<sup>2</sup>-GET</a>
+    <nav class="topnav" aria-label="Sections">
+      <a href="#method">Method</a>
+      <a href="#examples">Examples</a>
+      <a href="#results">Results</a>
+      <a href="#cite">Cite</a>
+    </nav>
+    <div class="topbar__actions">
+      <button class="icon-btn" id="theme-toggle" type="button" aria-label="Switch between light and dark">
+        <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6"/></svg>
+        <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.6A8.2 8.2 0 0 1 9.4 4a8.2 8.2 0 1 0 10.6 10.6Z"/></svg>
+      </button>
+      <!-- The repo URL comes from config.js → links.code -->
+      <a class="btn btn--ink btn--sm" data-link="code" href="#" target="_blank" rel="noopener">
+        <svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span data-link-label>Code</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ───────────────────────── Hero ───────────────────────── -->
+  <section class="hero wrap">
+    <div class="hero__grid">
+      <div class="hero__title">
+        <p class="eyebrow">Submitted to ICASSP 2027 &nbsp;·&nbsp; Demo page</p>
+        <h1 class="display">CF<sup>2</sup>-GET</h1>
+        <p class="subtitle">Conditional Flow for Counterfactual Symbolic Music Genre&nbsp;Transfer</p>
+        <p class="authors">
+          <span>Ziyuan Zhao</span><span>Ruiji Yu</span><span>Dylan Xinming Hou</span><span>Gus Xia</span>
+        </p>
+        <p class="affil">Mohamed bin Zayed University of Artificial Intelligence, Abu Dhabi</p>
+        <div class="cta">
+          <a class="btn btn--ink" data-link="code" href="#" target="_blank" rel="noopener">
+            <svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+            <span data-link-label>Code on GitHub</span>
+          </a>
+          <a class="btn btn--line" data-link="paper" href="#" target="_blank" rel="noopener" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/></svg>
+            <span>Paper</span>
+          </a>
+          <a class="btn btn--line" href="#examples">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>
+            <span>Listen</span>
+          </a>
+          <a class="btn btn--line" href="#cite">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h4v6H5v-2a4 4 0 0 1 2-4Zm0 6v4M15 7h4v6h-6v-2a4 4 0 0 1 2-4Zm0 6v4"/></svg>
+            <span>BibTeX</span>
+          </a>
+        </div>
+      </div>
+      <p class="thesis">
+        How would this passage sound had it been written in another genre? CF<sup>2</sup>-GET answers that counterfactual directly.
+        It runs a conditional flow backward to recover the passage’s noise under its own genre, swaps the genre label,
+        and runs the same flow forward. The noise stays fixed, so melody and harmony carry over while the style changes.
+      </p>
+    </div>
+
+    <!-- Flow schematic: dots run backward to shared noise û, then forward under a new genre -->
+    <figure class="flowfig" id="method" aria-labelledby="flowfig-cap">
+      <div class="flowfig__stage">
+        <canvas id="flow-canvas" aria-hidden="true"></canvas>
+        <div class="flowfig__hud" aria-hidden="true">
+          <span class="hud-pill" id="flow-state"><i class="swatch"></i><span>x · Classical</span></span>
+          <span class="hud-read"><span id="flow-t">t = 1.00</span></span>
+        </div>
+        <button class="icon-btn flowfig__pause" id="flow-toggle" type="button" aria-label="Pause animation" aria-pressed="false">
+          <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>
+          <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg>
+        </button>
+      </div>
+      <ol class="stages" id="flow-stages">
+        <li class="stage" data-stage="1">
+          <span class="stage__bar"><i></i></span>
+          <span class="stage__num">1</span>
+          <h3>Abduction</h3>
+          <p>Encode the source passage <i>x</i> with the frozen Transformer VAE, then integrate the flow backward under its source genre <i>s</i>.</p>
+          <code>t : 1 → 0 &nbsp;⇒&nbsp; û</code>
+        </li>
+        <li class="stage" data-stage="2">
+          <span class="stage__bar"><i></i></span>
+          <span class="stage__num">2</span>
+          <h3>Intervention</h3>
+          <p>Replace the genre equation with the target genre <i>s′</i>. The abducted noise <i>û</i> is held fixed.</p>
+          <code>do(G := s′)</code>
+        </li>
+        <li class="stage" data-stage="3">
+          <span class="stage__bar"><i></i></span>
+          <span class="stage__num">3</span>
+          <h3>Prediction</h3>
+          <p>Integrate the same velocity network forward under <i>s′</i>, then decode to MIDI.</p>
+          <code>t : 0 → 1 &nbsp;⇒&nbsp; x<sup>cf</sup></code>
+        </li>
+      </ol>
+      <figcaption id="flow-cap">
+        Schematic, not model output. The dots keep the same noise positions <i>û</i> in every cycle; only the genre condition changes.
+        Inversion and generation share one velocity network <i>v</i><sub>θ</sub>, solved with 32 Heun steps.
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- ───────────────────────── Abstract ───────────────────────── -->
+  <section class="wrap section section--abstract" aria-labelledby="abstract-h">
+    <div class="section__head">
+      <h2 id="abstract-h">Abstract</h2>
+    </div>
+    <div class="prose">
+      <p>
+        Symbolic music genre transfer, as a subproblem of music style transfer, means to preserve the identifiable features such as
+        melody contour and harmony structure while altering other genre-related features in a meaningful way. However, previous
+        methods mostly rely on either paired data of transfer or an external auxiliary classifier. Causal counterfactual offers a
+        new perspective where such transfer can be viewed as a 3-stage process: abduction, intervention and prediction. In this
+        paper, we propose CF<sup>2</sup>-GET, a framework inspired by counterfactual inference that leverages a noise-shared
+        conditional flow to do symbolic music genre transfer. We show that with simple causality-aware and MIDI-specific design,
+        an optimal-transport conditional flow matching training on generative task can faithfully accomplish abduction of
+        exogenous noise and cross-genre prediction. Experiments on a large-scale symbolic music dataset show that CF<sup>2</sup>-GET
+        outperforms VAE and diffusion-based baselines on both genre transfer and content preservation, showing that a flow-based
+        generative model can implicitly learn counterfactual inference of symbolic music.
+      </p>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── Transfer examples ───────────────────────── -->
+  <section class="wrap section" id="examples" aria-labelledby="examples-h">
+    <div class="section__head">
+      <p class="eyebrow">Genre transfer &nbsp;·&nbsp; 16 bars &nbsp;·&nbsp; XMIDI test split</p>
+      <h2 id="examples-h">Listening examples</h2>
+      <p class="lede">
+        Each example is a 16-bar passage transferred to a new genre by CF<sup>2</sup>-GET and by the three baselines from the paper.
+        The rows in an example share one bar grid and one pitch range, so you can follow the melody from row to row.
+        Press play on any row, or click inside a piano roll to start from that bar.
+      </p>
+    </div>
+
+    <dl class="legend" id="method-legend"></dl>
+
+    <div class="toolbar" role="group" aria-label="Filter examples">
+      <div class="chips" id="genre-filter"></div>
+      <label class="switch" for="ablation-toggle">
+        <input type="checkbox" id="ablation-toggle">
+        <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+        <span class="switch__label">Show ablation <span class="muted">(w/o HSIC)</span></span>
+      </label>
+    </div>
+    <p class="count" id="example-count" aria-live="polite"></p>
+
+    <div class="examples" id="transfer-examples"></div>
+  </section>
+
+  <!-- ───────────────────────── Results ───────────────────────── -->
+  <section class="wrap section" id="results" aria-labelledby="results-h">
+    <div class="section__head">
+      <p class="eyebrow">Table 1 of the paper</p>
+      <h2 id="results-h">Objective results</h2>
+      <p class="lede">
+        Six genres, 16-bar XMIDI passages, 2,000 shared test assignments over all 30 directed genre pairs.
+        Bold marks the best score in each column, as in the paper.
+      </p>
+    </div>
+
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Results table">
+      <table class="results">
+        <thead>
+          <tr>
+            <th scope="col">Method</th>
+            <th scope="col" class="num"><abbr title="Share of outputs that CLaMP3 labels as the target genre">Success&nbsp;(%)</abbr> <span class="dir">↑</span></th>
+            <th scope="col" class="num"><abbr title="Shift of the CLaMP3 embedding toward the target genre prototype">Transfer dist.</abbr> <span class="dir">↑</span></th>
+            <th scope="col" class="num"><abbr title="Pitch-class similarity to the source">PC</abbr> <span class="dir">↑</span></th>
+            <th scope="col" class="num"><abbr title="Melody contour correlation with the source">MC</abbr> <span class="dir">↑</span></th>
+            <th scope="col" class="num"><abbr title="Duration-weighted chroma cosine similarity">Chroma</abbr> <span class="dir">↑</span></th>
+            <th scope="col" class="num"><abbr title="Round-trip reconstruction error in normalized latent space">RT&nbsp;MSE</abbr> <span class="dir">↓</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">MIDI-VAE</th>
+            <td>27.10</td><td>0.0970</td><td>0.5572</td><td>0.0462</td><td>0.3226</td><td class="na">–</td>
+          </tr>
+          <tr>
+            <th scope="row">Latent MIDI-VAE</th>
+            <td>36.55</td><td><b>0.1220</b></td><td>0.6967</td><td>0.0088</td><td>0.2575</td><td>3.87 × 10<sup>−1</sup></td>
+          </tr>
+          <tr>
+            <th scope="row">DDIM Inversion</th>
+            <td>31.40</td><td>0.0926</td><td>0.5394</td><td>0.0075</td><td>0.0059</td><td>7.41 × 10<sup>1</sup></td>
+          </tr>
+          <tr class="ours group-start">
+            <th scope="row">CF<sup>2</sup>-GET <span class="tag">Ours</span></th>
+            <td><b>46.75</b></td><td>0.1193</td><td><b>0.8930</b></td><td><b>0.2422</b></td><td><b>0.5461</b></td><td><b>1.27 × 10<sup>−3</sup></b></td>
+          </tr>
+          <tr class="ablation">
+            <th scope="row">CF<sup>2</sup>-GET w/o HSIC</th>
+            <td>10.80</td><td>0.0324</td><td><b>0.9787</b></td><td><b>0.4915</b></td><td><b>0.7775</b></td><td><b>8.10 × 10<sup>−4</sup></b></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>Transfer and content together</h3>
+        <p>CF<sup>2</sup>-GET has the highest transfer success and keeps pitch classes, melody contour and chroma far closer to the source than any baseline.</p>
+      </div>
+      <div class="note">
+        <h3>What the baselines lose</h3>
+        <p>Latent MIDI-VAE moves furthest in embedding space, but its melody contour correlation falls to 0.009. DDIM Inversion loses temporal and harmonic continuity, and MIDI-VAE keeps local harmony but rarely reaches the target genre.</p>
+      </div>
+      <div class="note">
+        <h3>Why HSIC matters</h3>
+        <p>Without the HSIC term the flow mostly reproduces the source. Content scores rise, but only 10.8% of outputs reach the target genre.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── Cite ───────────────────────── -->
+  <section class="wrap section" id="cite" aria-labelledby="cite-h">
+    <div class="section__head">
+      <h2 id="cite-h">Cite</h2>
+    </div>
+    <div class="bib">
+      <pre id="bibtex" tabindex="0"></pre>
+      <button class="btn btn--line btn--sm bib__copy" id="bib-copy" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>
+        <span>Copy</span>
+      </button>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="wrap footer__inner">
+    <p>CF<sup>2</sup>-GET · Mohamed bin Zayed University of Artificial Intelligence</p>
+    <p class="muted">MIDI playback uses the SGM+ General MIDI soundfont through Magenta.js. Headphones recommended.</p>
+    <p class="muted">Source passages are 16-bar excerpts from the XMIDI dataset (Tian et al., 2025), shared for research demonstration. The MIDI examples are not covered by the code license.</p>
+    <p><a data-link="code" href="#" target="_blank" rel="noopener"><span data-link-label>Code on GitHub</span></a> &nbsp;·&nbsp; <a href="#top">Back to top</a></p>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<!-- Row template used for every piano-roll row -->
+<template id="row-tpl">
+  <div class="row" data-state="loading">
+    <div class="row__label">
+      <span class="row__name"></span>
+      <span class="row__detail"></span>
+    </div>
+    <button class="play" type="button" aria-label="Play">
+      <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg>
+      <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>
+      <span class="spinner" aria-hidden="true"></span>
+    </button>
+    <div class="roll">
+      <canvas></canvas>
+      <div class="roll__msg"></div>
+    </div>
+    <span class="row__time">–:––</span>
+    <a class="row__dl" download aria-label="Download MIDI" title="Download MIDI">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>
+    </a>
+  </div>
+</template>
+
+<script src="config.js"></script>
+<script src="assets/midi.js"></script>
+<script src="assets/hero.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
