@@ -1,14 +1,12 @@
-"""Encode deterministic posterior means into versioned latent shards."""
+"""Encode deterministic posterior means into latent shards."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import time
 import uuid
 from collections.abc import Iterator, Mapping
-from dataclasses import asdict
 from functools import partial
 from pathlib import Path
 
@@ -20,12 +18,10 @@ import torch.distributed as dist
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
-from cfmusic.codec.checkpoint import checkpoint_hash
 from cfmusic.commands.train_codec import codec_from_config
 from cfmusic.config import CONFIG_DIR, prepare_config
 from cfmusic.data.collate import collate_token_batch
 from cfmusic.data.datasets import MidiTokenDataset
-from cfmusic.data.manifests import manifest_hash
 from cfmusic.data.samplers import GroupedLengthBatchSampler
 from cfmusic.distributed import (
     DistributedContext,
@@ -38,7 +34,7 @@ from cfmusic.latent.cache import (
     finalize_latent_cache_partitions,
     write_latent_cache,
 )
-from cfmusic.latent.normalization import NORMALIZATION_SCHEMA_VERSION, load_statistics
+from cfmusic.latent.normalization import load_statistics
 from cfmusic.memory import autocast_context, peak_memory_gib, reset_peak_memory
 from cfmusic.progress import progress_bar, track
 from cfmusic.tokenization.factory import tokenizer_from_config
@@ -284,36 +280,6 @@ def _wait_for_markers(
         progress.close()
 
 
-def _broadcast_metadata(
-    checkpoint_path: Path,
-    manifest_path: Path,
-    tokenizer_hash: str,
-    extra_metadata: dict[str, str],
-    context: DistributedContext,
-) -> dict[str, str]:
-    metadata: dict[str, str] | None = None
-    if context.is_main:
-        print("Hashing codec checkpoint once on rank 0...")
-        metadata = {
-            "codec_checkpoint_hash": checkpoint_hash(checkpoint_path),
-            "tokenizer_hash": tokenizer_hash,
-            "dataset_manifest_hash": manifest_hash(manifest_path),
-            **extra_metadata,
-        }
-    if context.world_size > 1:
-        values: list[object] = [metadata]
-        dist.broadcast_object_list(values, src=0, device=context.device)
-        received = values[0]
-        if not isinstance(received, dict) or not all(
-            isinstance(key, str) and isinstance(value, str) for key, value in received.items()
-        ):
-            raise TypeError("Invalid latent-cache metadata broadcast")
-        metadata = received
-    if metadata is None:
-        raise RuntimeError("Latent-cache metadata was not constructed")
-    return metadata
-
-
 def _checkpoint_codec_config(checkpoint: Mapping[str, object]) -> DictConfig:
     payload = checkpoint.get("config")
     if not isinstance(payload, Mapping):
@@ -385,8 +351,6 @@ def _completed_cache_is_reusable(
             recorded.get(key) != value for key, value in metadata.items()
         ):
             return False
-        if recorded.get("normalization_schema_version") != NORMALIZATION_SCHEMA_VERSION:
-            return False
         stats = load_statistics(destination)
         if stats.count != split_counts.get("train", 0) or tuple(stats.mean.shape) != (
             int(metadata["latent_tokens"]),
@@ -438,17 +402,6 @@ def _cache(cfg: DictConfig, context: DistributedContext) -> None:
     tokenizer = tokenizer_from_config(
         tokenizer_cfg, max_sequence_length=int(codec_cfg.max_sequence_length)
     )
-    tokenizer_digest = hashlib.sha256(
-        json.dumps(asdict(tokenizer.config), sort_keys=True).encode()
-    ).hexdigest()
-    provenance = checkpoint.get("provenance")
-    checkpoint_tokenizer_hash = (
-        provenance.get("tokenizer_hash") if isinstance(provenance, Mapping) else None
-    )
-    if checkpoint_tokenizer_hash != tokenizer_digest:
-        raise ValueError(
-            "Codec checkpoint tokenizer provenance does not match its embedded tokenizer config"
-        )
     weights = str(cfg.latent_cache.get("codec_weights", "raw"))
     device = context.device
 
@@ -508,21 +461,14 @@ def _cache(cfg: DictConfig, context: DistributedContext) -> None:
         )
     if bool(cfg.latent_cache.get("plan_only", False)):
         return
-    metadata = _broadcast_metadata(
-        checkpoint_path,
-        manifest_path,
-        tokenizer_digest,
-        {
-            # The checkpoint identity already covers its embedded configuration.
-            "codec_weights": weights,
-            "latent_tokens": str(int(codec_cfg.latent_tokens)),
-            "latent_dim": str(int(codec_cfg.latent_dim)),
-            "latent_dtype": str(dtype).removeprefix("torch."),
-            "max_sequence_length": str(int(codec_cfg.max_sequence_length)),
-            "overlength_policy": "drop" if overlength_count else "none_needed",
-        },
-        context,
-    )
+    metadata = {
+        "codec_weights": weights,
+        "latent_tokens": str(int(codec_cfg.latent_tokens)),
+        "latent_dim": str(int(codec_cfg.latent_dim)),
+        "latent_dtype": str(dtype).removeprefix("torch."),
+        "max_sequence_length": str(int(codec_cfg.max_sequence_length)),
+        "overlength_policy": "drop" if overlength_count else "none_needed",
+    }
 
     destination = paths["latent_dir"] / data_name
     staging = destination.with_name(f".{destination.name}.building")
@@ -776,7 +722,6 @@ def _cache(cfg: DictConfig, context: DistributedContext) -> None:
                 samples_per_shard=int(cfg.latent_cache.samples_per_shard),
                 dtype=dtype,
                 metadata=metadata,
-                verify_after_write=bool(cfg.latent_cache.verify_after_write),
                 finalize=False,
             )
         except BaseException as error:

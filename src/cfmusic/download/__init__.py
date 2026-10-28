@@ -1,1 +1,1 @@
-"""Licensed and reproducible dataset download infrastructure."""
+"""Dataset download."""

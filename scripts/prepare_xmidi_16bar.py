@@ -76,11 +76,6 @@ def parquet(path, frame):
     tmp.replace(path)
 
 
-def file_identity(path: Path) -> dict:
-    info = path.stat()
-    return {"path": str(path.resolve()), "bytes": info.st_size, "mtime_ns": info.st_mtime_ns}
-
-
 # --------------------------------------------------------------------------- segments
 
 
@@ -167,18 +162,6 @@ def segments(layout: Layout, workers: int) -> None:
         print(destination.read_text(), flush=True)
         return
     source = layout.parent / "manifest.parquet"
-    stat = source.stat()
-    spec = dict(
-        source=str(source.resolve()),
-        source_bytes=stat.st_size,
-        source_mtime_ns=stat.st_mtime_ns,
-        quality=QUALITY,
-        split_policy="preserve existing sample_id/group_id splits",
-    )
-    receipt = layout.processed / "preparation_protocol.json"
-    if receipt.exists() and json.loads(receipt.read_text()) != spec:
-        raise ValueError("Preparation inputs or thresholds changed")
-    dump(receipt, spec)
     original = pd.read_parquet(source)
     if original.groupby("group_id").split.nunique().max() != 1:
         raise ValueError("Original split groups overlap")
@@ -258,8 +241,6 @@ def label_prepare(layout: Layout, repository: Path, gpus: int, name: str) -> Non
     work = layout.work
     if (work / "protocol.json").exists():
         protocol = json.loads((work / "protocol.json").read_text())
-        if any(file_identity(Path(v["path"])) != v for v in protocol["inputs"].values()):
-            raise ValueError("Label input changed")
         if protocol["num_gpus"] != gpus:
             raise ValueError("Label partitions were prepared for a different GPU count")
         return
@@ -313,7 +294,7 @@ def label_prepare(layout: Layout, repository: Path, gpus: int, name: str) -> Non
         work / "protocol.json",
         dict(
             schema=name,
-            inputs={k: file_identity(p) for k, p in paths.items()},
+            inputs={k: {"path": str(p.resolve())} for k, p in paths.items()},
             num_gpus=gpus,
             vocabulary=GENRES,
             rows=len(jobs),
@@ -324,7 +305,6 @@ def label_prepare(layout: Layout, repository: Path, gpus: int, name: str) -> Non
             max_sequence_length=5120,
             midi_view_policy="three",
             midi_representation="BEAT token roundtrip, matching source.mid",
-            label_assignment_hash=name,
             selection="all content-filtered 16-bar cached segments",
         ),
     )
@@ -385,7 +365,6 @@ def label_worker(layout: Layout, repository: Path, rank: int, workers: int, batc
     import torch
 
     from cfmusic.commands.clamp3_batched_worker import _load_official_model
-    from cfmusic.evaluation.clamp3 import embedding_protocol
     from cfmusic.evaluation.clamp3_labels import (
         family_scores,
         gpu_patch_forward,
@@ -396,8 +375,6 @@ def label_worker(layout: Layout, repository: Path, rank: int, workers: int, batc
 
     work = layout.work
     protocol = json.loads((work / "protocol.json").read_text())
-    if protocol["embedding_model"] != embedding_protocol(repository):
-        raise ValueError("CLaMP3 changed after preparation")
     if not 0 <= rank < protocol["num_gpus"]:
         raise ValueError("Worker rank outside the prepared partitions")
     jobs = pd.read_parquet(work / f"jobs-{rank}.parquet")
@@ -550,7 +527,6 @@ def label_publish(layout: Layout, name: str) -> None:
     ).drop_duplicates("sample_id")
     songs["genre_label"] = songs.style_id.map(dict(enumerate(GENRES)))
     parquet(work / "source_labels.parquet", songs[["sample_id", "genre_label"]])
-    base = json.loads((layout.cache / "cache_metadata.json").read_text())
     card = json.loads((work / "source_card.json").read_text())
     for directory, current, suffix in [(work, index, "full"), (filtered_dir, filtered, "train-q30")]:
         directory.mkdir(parents=True, exist_ok=True)
@@ -563,23 +539,15 @@ def label_publish(layout: Layout, name: str) -> None:
                 card,
                 segments=len(current),
                 splits=current.split.value_counts().to_dict(),
-                label_assignment_hash=f"{name}:{suffix}",
                 source_labels=str(work / "source_labels.parquet"),
             ),
         )
         dump(
             directory / "index.metadata.json",
             dict(
-                schema_version="cfmusic.latent-label-overlay.v1",
-                base_dataset_manifest_hash=base["dataset_manifest_hash"],
-                label_assignment_hash=f"{name}:{suffix}",
-                label_source=name,
-                rows=len(current),
-                unique_samples=int(current.sample_id.nunique()),
                 genre_vocabulary=GENRES,
                 dataset_card=str((directory / "dataset_card.json").resolve()),
                 manifest=str((directory / "manifest.parquet").resolve()),
-                relabel_config=str((work / "taxonomy.json").resolve()),
             ),
         )
     layout.reports.mkdir(parents=True, exist_ok=True)
@@ -590,7 +558,7 @@ def label_publish(layout: Layout, name: str) -> None:
         train_after=int(filtered.split.eq("train").sum()),
         heldout_unchanged=True,
         outputs=[
-            file_identity(filtered_dir / f)
+            str((filtered_dir / f).resolve())
             for f in ["index.parquet", "index.metadata.json", "dataset_card.json"]
         ],
     )

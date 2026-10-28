@@ -73,7 +73,6 @@ def save_checkpoint(
     state: TrainState,
     ema: ExponentialMovingAverage | None,
     config: Mapping[str, object],
-    provenance: Mapping[str, str],
     extra_state: Mapping[str, object] | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,10 +93,7 @@ def save_checkpoint(
             "python": random.getstate(),
         },
         "config": dict(config),
-        "provenance": dict(provenance),
     }
-    if "condition_schema_version" in provenance:
-        payload["condition_schema_version"] = provenance["condition_schema_version"]
     temporary = path.with_suffix(path.suffix + ".tmp")
     torch.save(payload, temporary)
     temporary.replace(path)
@@ -113,7 +109,6 @@ def save_rolling_checkpoint(
     state: TrainState,
     ema: ExponentialMovingAverage | None,
     config: Mapping[str, object],
-    provenance: Mapping[str, str],
 ) -> Path:
     """Atomically overwrite the sole intermediate checkpoint in a run directory."""
 
@@ -127,7 +122,6 @@ def save_rolling_checkpoint(
         state=state,
         ema=ema,
         config=config,
-        provenance=provenance,
     )
     # Versions before rolling checkpoints wrote one full copy per interval.  Remove
     # those only after the new checkpoint is durable, so migration is crash-safe.

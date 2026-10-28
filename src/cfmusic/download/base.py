@@ -14,11 +14,9 @@ class DownloadResult:
     resolved_revision: str | None
     archive_path: str | None
     size_bytes: int
-    sha256: str | None
     downloaded_at: str
     license_acknowledged: bool
     extract_root: str
-    checksum_source: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)

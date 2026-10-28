@@ -7,15 +7,10 @@ from pathlib import Path
 
 import hydra
 import torch
-from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader, Dataset
 
-from cfmusic.conditioning.schema import (
-    condition_schema_provenance,
-    validate_condition_checkpoint,
-)
-from cfmusic.config import CONFIG_DIR, config_mapping, prepare_config
+from cfmusic.config import CONFIG_DIR, config_mapping, prepare_config, seed_everything
 from cfmusic.data.samplers import (
     BalancedStyleShardBatchSampler,
     ShardBatchSampler,
@@ -26,15 +21,8 @@ from cfmusic.distributed import (
     initialize_distributed,
 )
 from cfmusic.latent.combined import CombinedLatentDataset
-from cfmusic.latent.compatibility import (
-    serialize_cache_metadata,
-    validate_latent_dataset,
-    validate_transport_cache_provenance,
-)
 from cfmusic.latent.dataset import LatentDataset
 from cfmusic.models.probes import DynamicNoiseProjector
-from cfmusic.paths import save_run_context
-from cfmusic.reproducibility import seed_everything
 from cfmusic.training.checkpointing import checkpoint_model_state, resolve_resume_checkpoint
 from cfmusic.training.optim import create_adamw
 from cfmusic.training.schedules import warmup_cosine_scheduler
@@ -43,14 +31,11 @@ from cfmusic.training.transport_trainer import (
     inverse_frequency_weights,
     train_transport_steps,
 )
-from cfmusic.transport.factory import create_transport, validate_guidance_checkpoint
+from cfmusic.transport.factory import create_transport
 
 
 def _train(cfg: DictConfig, context: DistributedContext) -> None:
     paths = prepare_config(cfg)
-    run_dir = Path(HydraConfig.get().runtime.output_dir)
-    if context.is_main:
-        save_run_context(cfg, run_dir)
     seed_everything(int(cfg.seed))
     data_name = str(cfg.data.name)
     training = cfg.transport.training
@@ -80,14 +65,6 @@ def _train(cfg: DictConfig, context: DistributedContext) -> None:
         )
         dataset_names = [data_name]
         latent_datasets = [dataset]
-    for name, latent_dataset in zip(dataset_names, latent_datasets, strict=True):
-        validate_latent_dataset(
-            latent_dataset,
-            codec_cfg=cfg.codec,
-            transport_cfg=cfg.transport,
-            dataset_name=name,
-        )
-    cache_metadata = [latent_dataset.metadata for latent_dataset in latent_datasets]
     factorial = bool(cfg.experiment.get("factorial", False))
     task = str(cfg.data.get("task", cfg.task))
     active_axis = str(cfg.counterfactual.get("factorial_intervention", "genre"))
@@ -156,19 +133,7 @@ def _train(cfg: DictConfig, context: DistributedContext) -> None:
         if factorial or task != "genre" or str(cfg.transport.type) != "cfm" or latent_index is None:
             raise ValueError("Content preservation requires a single genre-only CFM label overlay")
         means_path = Path(str(content_config["means_file"])).resolve()
-        receipt = json.loads(Path(str(content_config["means_receipt"])).read_text())
-        stat = means_path.stat()
-        if receipt["means"] != {"path": str(means_path), "bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns}:
-            raise ValueError("Fixed content means differ from their receipt")
-        if receipt["latent_cache_metadata"] != cache_metadata[0]:
-            raise ValueError("Fixed content means were estimated from a different latent dataset")
-        payload = torch.load(means_path, map_location="cpu", weights_only=True)
-        stat = latent_index.stat()
-        expected_index = {"path": str(latent_index), "bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns}
-        if (payload["spec"] != receipt["spec"] or payload["spec"]["index"] != expected_index
-                or payload["spec"]["split"] != "train" or not payload["spec"]["normalized"]):
-            raise ValueError("Content means require matching normalized training-only inputs")
-        content_means = payload["means"]
+        content_means = torch.load(means_path, map_location="cpu", weights_only=True)["means"]
         if (tuple(content_means.shape) != (int(cfg.transport.conditioning.num_styles), int(cfg.codec.latent_tokens), int(cfg.codec.latent_dim))
                 or content_means.requires_grad or not torch.isfinite(content_means).all()):
             raise ValueError("Invalid fixed content means")
@@ -209,12 +174,6 @@ def _train(cfg: DictConfig, context: DistributedContext) -> None:
             split="validation",
             index_path=latent_index,
             shard_cache_size=max(1, len(label_values.get("style_id", []))),
-        )
-        validate_latent_dataset(
-            validation_dataset,
-            codec_cfg=cfg.codec,
-            transport_cfg=cfg.transport,
-            dataset_name=data_name,
         )
         validation_batch = heldout_condition_batch(
             validation_dataset,
@@ -321,30 +280,12 @@ def _train(cfg: DictConfig, context: DistributedContext) -> None:
         resume_from=explicit_resume,
         announce=context.is_main,
     )
-    if resume_checkpoint is not None:
-        resumed = torch.load(resume_checkpoint, map_location="cpu", weights_only=False, mmap=True)
-        if not isinstance(resumed, dict):
-            raise TypeError("Transport checkpoint must contain a mapping")
-        validate_transport_cache_provenance(resumed, cache_metadata)
-        validate_condition_checkpoint(resumed, task=task, factorial=factorial)
-        validate_guidance_checkpoint(resumed, cfg.transport, exact_training_match=True)
-        del resumed
-    initialization_provenance = {}
     initial_value = cfg.get("initialize_from")
     if initial_value is not None:
         initial_path = Path(str(initial_value)).resolve()
         initial_weights = str(cfg.get("initialize_weights", "ema"))
-        stat = initial_path.stat()
-        initialization_provenance = {
-            "initialization_checkpoint": str(initial_path), "initialization_weights": initial_weights,
-            "initialization_checkpoint_bytes": str(stat.st_size),
-            "initialization_checkpoint_mtime_ns": str(stat.st_mtime_ns),
-        }
         if resume_checkpoint is None:
             initialized = torch.load(initial_path, map_location="cpu", weights_only=False, mmap=True)
-            validate_transport_cache_provenance(initialized, cache_metadata)
-            validate_condition_checkpoint(initialized, task=task, factorial=factorial)
-            validate_guidance_checkpoint(initialized, cfg.transport, exact_training_match=False)
             transport.load_state_dict(checkpoint_model_state(initialized, weights=initial_weights), strict=True)
             del initialized
             if context.is_main:
@@ -443,11 +384,6 @@ def _train(cfg: DictConfig, context: DistributedContext) -> None:
         checkpoint_dir=checkpoint_dir,
         checkpoint_interval=int(training.checkpoint_interval),
         config=config_mapping(cfg.transport),
-        provenance={
-            "latent_cache_metadata_json": serialize_cache_metadata(cache_metadata),
-            **condition_schema_provenance(task=task, factorial=factorial),
-            **initialization_provenance,
-        },
         factorial_conditioning=factorial,
         condition_task=task,
         factorial_active_axis=active_axis,

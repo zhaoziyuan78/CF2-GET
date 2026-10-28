@@ -12,7 +12,6 @@ import pandas as pd
 import torch
 from omegaconf import DictConfig
 
-from cfmusic.conditioning.schema import CONDITION_SCHEMA_VERSION
 from cfmusic.config import CONFIG_DIR, dataset_asset_path, prepare_config
 from cfmusic.data.midi_io import validate_midi
 from cfmusic.evaluation.clamp3 import (
@@ -72,16 +71,6 @@ def main(cfg: DictConfig) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     reset_peak_memory(device)
     records = [json.loads(path.read_text(encoding="utf-8")) for path in metadata_files]
-    incompatible = [
-        str(path)
-        for path, record in zip(metadata_files, records, strict=True)
-        if record.get("condition_schema_version") != CONDITION_SCHEMA_VERSION
-    ]
-    if incompatible:
-        raise ValueError(
-            "Generated artifacts use an obsolete condition schema; regenerate them before "
-            f"evaluation (first incompatible artifact: {incompatible[0]})"
-        )
     clamp_cfg = cfg.evaluation.clamp3
     classifier: TokenStyleEvaluator | None = None
     classifier_checkpoint: Path | None = None

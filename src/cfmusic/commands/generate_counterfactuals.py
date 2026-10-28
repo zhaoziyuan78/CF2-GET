@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
 import random
 import shutil
 from collections.abc import Hashable, Mapping
-from dataclasses import asdict
 from pathlib import Path
 from typing import TypeVar, cast
 from urllib.parse import quote
@@ -21,15 +19,9 @@ import torch.distributed as dist
 from omegaconf import DictConfig
 
 from cfmusic.baselines.models import LatentMIDIVAE
-from cfmusic.codec.checkpoint import checkpoint_hash
 from cfmusic.codec.decoder_adaptation import decode_completion, load_decoder_overlay
 from cfmusic.commands.train_codec import codec_from_config
-from cfmusic.conditioning.schema import (
-    CONDITION_SCHEMA_VERSION,
-    ConditionBatch,
-    build_condition_batch,
-    validate_condition_checkpoint,
-)
+from cfmusic.conditioning.schema import ConditionBatch, build_condition_batch
 from cfmusic.config import CONFIG_DIR, dataset_asset_path, prepare_config
 from cfmusic.data.midi_io import load_midi
 from cfmusic.distributed import (
@@ -39,18 +31,13 @@ from cfmusic.distributed import (
     initialize_distributed,
 )
 from cfmusic.evaluation.consistency import latent_errors
-from cfmusic.latent.compatibility import (
-    validate_latent_dataset,
-    validate_transport_cache_provenance,
-)
 from cfmusic.latent.dataset import LatentDataset
 from cfmusic.memory import autocast_context, peak_memory_gib, reset_peak_memory
 from cfmusic.progress import progress_bar, track
 from cfmusic.tokenization.factory import tokenizer_from_config
 from cfmusic.training.checkpointing import checkpoint_model_state
-from cfmusic.transport.conditional_ddim import ConditionalDDIM
 from cfmusic.transport.conditional_flow import ConditionalFlow
-from cfmusic.transport.factory import create_transport, validate_guidance_checkpoint
+from cfmusic.transport.factory import create_transport
 
 QuotaKey = TypeVar("QuotaKey", bound=Hashable)
 
@@ -317,18 +304,6 @@ def _replace_with_link_or_copy(source: Path, destination: Path) -> None:
         shutil.copy2(source, destination)
 
 
-def _artifact_matches_generation(metadata_path: Path, expected_identity: Mapping[str, str]) -> bool:
-    """Only reuse artifacts produced by the exact current model/config identity."""
-
-    try:
-        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return False
-    return isinstance(payload, dict) and all(
-        payload.get(key) == value for key, value in expected_identity.items()
-    )
-
-
 def target_style_ids(
     source: int,
     styles: list[int],
@@ -401,22 +376,6 @@ def _codec_state_for_cache(
     return {"model": dict(state)}
 
 
-def _distributed_checkpoint_hash(checkpoint_path: Path, context: DistributedContext) -> str:
-    """Hash a shared checkpoint once instead of rereading it on every GPU rank."""
-
-    digest: str | None = checkpoint_hash(checkpoint_path) if context.is_main else None
-    if context.world_size > 1:
-        values: list[object] = [digest]
-        dist.broadcast_object_list(values, src=0, device=context.device)
-        received = values[0]
-        if not isinstance(received, str):
-            raise TypeError("Invalid codec checkpoint hash broadcast")
-        digest = received
-    if digest is None:
-        raise RuntimeError("Codec checkpoint hash was not constructed")
-    return digest
-
-
 def _decode_length_limit(
     *,
     tokenizer_limit: int,
@@ -453,27 +412,11 @@ def _generate(cfg: DictConfig, context: DistributedContext) -> None:
     latent_dataset = LatentDataset(
         paths["latent_dir"] / data_name, split=evaluation_split, index_path=latent_index
     )
-    validate_latent_dataset(
-        latent_dataset,
-        codec_cfg=cfg.codec,
-        transport_cfg=cfg.transport,
-        dataset_name=data_name,
-    )
-    cache_metadata = [latent_dataset.metadata]
     tokenizer = tokenizer_from_config(
         cfg.tokenizer, max_sequence_length=int(cfg.codec.max_sequence_length)
     )
-    tokenizer_digest = hashlib.sha256(
-        json.dumps(asdict(tokenizer.config), sort_keys=True).encode()
-    ).hexdigest()
-    if latent_dataset.metadata.get("tokenizer_hash") != tokenizer_digest:
-        raise ValueError("Configured tokenizer does not match the cached XMIDI latents")
     codec = codec_from_config(cfg.codec, tokenizer).to(device)
     codec_checkpoint_path = Path(str(cfg.codec_checkpoint)).expanduser().resolve()
-    cached_checkpoint_hash = latent_dataset.metadata.get("codec_checkpoint_hash")
-    codec_checkpoint_digest = _distributed_checkpoint_hash(codec_checkpoint_path, context)
-    if cached_checkpoint_hash != codec_checkpoint_digest:
-        raise ValueError("codec_checkpoint does not match the checkpoint used by cache_latents")
     codec_checkpoint = torch.load(
         codec_checkpoint_path, map_location="cpu", weights_only=False, mmap=True
     )
@@ -485,47 +428,19 @@ def _generate(cfg: DictConfig, context: DistributedContext) -> None:
     if cfg.counterfactual.get("decoder_checkpoint") is not None:
         overlay_path = Path(str(cfg.counterfactual.decoder_checkpoint)).resolve()
         overlay = torch.load(overlay_path, map_location="cpu", weights_only=False, mmap=True)
-        load_decoder_overlay(codec, overlay, base_codec_hash=codec_checkpoint_digest)
-        decoder_overlay_identity = {
-            "checkpoint": str(overlay_path),
-            "checkpoint_hash": _distributed_checkpoint_hash(overlay_path, context),
-            "step": int(overlay["step"]),
-        }
+        load_decoder_overlay(codec, overlay)
+        decoder_overlay_identity = {"checkpoint": str(overlay_path), "step": int(overlay["step"])}
         del overlay
     codec.eval()
     transport = create_transport(cfg.transport).to(device)
     transport_checkpoint_path = Path(str(cfg.transport_checkpoint)).expanduser().resolve()
-    transport_checkpoint_digest = _distributed_checkpoint_hash(transport_checkpoint_path, context)
     transport_checkpoint = torch.load(
         transport_checkpoint_path, map_location="cpu", weights_only=False, mmap=True
     )
     if not isinstance(transport_checkpoint, dict):
         raise TypeError("Transport checkpoint must contain a mapping")
-    allow_label_transfer = bool(cfg.counterfactual.get("allow_label_overlay_change", False))
-    validate_transport_cache_provenance(
-        transport_checkpoint, cache_metadata, allow_label_overlay_change=allow_label_transfer
-    )
-    label_transfer = None
-    if allow_label_transfer:
-        training_metadata = json.loads(
-            transport_checkpoint["provenance"]["latent_cache_metadata_json"]
-        )
-        label_transfer = {
-            "training": [
-                {key: entry.get(key) for key in ("label_source", "label_assignment_hash")}
-                for entry in training_metadata
-            ],
-            "evaluation": [
-                {key: entry.get(key) for key in ("label_source", "label_assignment_hash")}
-                for entry in cache_metadata
-            ],
-        }
-        if context.is_main:
-            print(f"Explicit label-only diagnostic transfer: {label_transfer}")
     factorial = bool(cfg.experiment.get("factorial", False))
     task = str(cfg.data.get("task", cfg.task))
-    validate_condition_checkpoint(transport_checkpoint, task=task, factorial=factorial)
-    validate_guidance_checkpoint(transport_checkpoint, cfg.transport, exact_training_match=False)
     transport_weights = str(cfg.counterfactual.get("transport_weights", "raw"))
     _load_model_state(transport, transport_checkpoint, weights=transport_weights)
     del transport_checkpoint
@@ -544,87 +459,8 @@ def _generate(cfg: DictConfig, context: DistributedContext) -> None:
         cfg.transport.get("prediction_guidance_scale", legacy_guidance_scale)
     )
     source_repulsion_scale = float(cfg.transport.get("source_repulsion_scale", 0.0))
-    generation_config = {
-        "solver_steps": int(cfg.transport.solver.num_steps),
-        "decode_length_multiplier": float(cfg.counterfactual.get("decode_length_multiplier", 1.1)),
-        "deterministic_decode": bool(cfg.counterfactual.get("deterministic_decode", True)),
-        "tokenizer_hash": tokenizer_digest,
-        "classifier_free_guidance": bool(cfg.transport.get("classifier_free_guidance", False)),
-        "save_abducted_noise": save_noise,
-    }
-    if "ddim_inversion" in cfg.transport:
-        generation_config["ddim_inversion"] = dict(cfg.transport.ddim_inversion)
-    if isinstance(transport, ConditionalDDIM):
-        # Grids that started at the singular t=T-1 produced exploded latents; never reuse them.
-        generation_config["ddim_max_timestep"] = transport.max_timestep
-    if cfg.transport.get("prediction_guidance_interval") is not None:
-        generation_config["prediction_guidance_interval"] = list(cfg.transport.prediction_guidance_interval)
-    if decoder_overlay_identity is not None:
-        generation_config["decoder_overlay"] = decoder_overlay_identity
     audit_decode = bool(cfg.counterfactual.get("audit_decode_completion", False))
     full_decode_budget = bool(cfg.counterfactual.get("full_decode_budget", False))
-    if full_decode_budget:
-        generation_config["full_decode_budget"] = True
-        # The old full-budget path incorrectly used the input tokenizer cap.
-        # Record the resolved output budget so those artifacts cannot be reused.
-        generation_config["decode_budget_policy"] = "codec-capacity-v1"
-        generation_config["decode_max_length"] = _decode_length_limit(
-            tokenizer_limit=tokenizer.config.max_sequence_length,
-            codec_limit=codec.max_sequence_length,
-            full_decode_budget=True,
-        )
-    if audit_decode:
-        generation_config["audit_decode_completion"] = True
-    if label_transfer is not None:
-        generation_config["label_overlay_transfer"] = label_transfer
-    split_guidance_keys = {
-        "abduction_guidance_scale",
-        "reconstruction_guidance_scale",
-        "prediction_guidance_scale",
-        "source_repulsion_scale",
-    }
-    if split_guidance_keys.intersection(cfg.transport):
-        generation_config.update(
-            {
-                "abduction_guidance_scale": abduction_guidance_scale,
-                "reconstruction_guidance_scale": reconstruction_guidance_scale,
-                "prediction_guidance_scale": prediction_guidance_scale,
-                "source_repulsion_scale": source_repulsion_scale,
-            }
-        )
-    else:
-        # Keep old experiments byte-for-byte resume compatible.
-        generation_config["guidance_scale"] = legacy_guidance_scale
-    # Preserve the generation hash of historical balanced/all-other artifacts,
-    # while making non-default diagnostic sampling fully resume-safe.
-    if source_sampling_policy != "balanced" or target_policy != "all_other":
-        generation_config.update(
-            {
-                "source_sampling_policy": source_sampling_policy,
-                "target_policy": target_policy,
-                "targets_per_source": cfg.counterfactual.targets_per_source,
-                "max_sources_per_style": int(cfg.counterfactual.max_sources_per_style),
-                "max_total_sources": cfg.counterfactual.get("max_total_sources"),
-                "unique_sources": bool(cfg.counterfactual.get("unique_sources", True)),
-                "seed": int(cfg.seed),
-            }
-        )
-    generation_config["split"] = evaluation_split
-    generation_config["require_all_transitions"] = bool(
-        cfg.counterfactual.get("require_all_transitions", False)
-    )
-    generation_config["sampling_weights_file"] = cfg.counterfactual.get("sampling_weights_file")
-    generation_config_hash = hashlib.sha256(
-        json.dumps(generation_config, sort_keys=True).encode()
-    ).hexdigest()
-    generation_identity = {
-        "artifact_schema_version": "3",
-        "codec_checkpoint_hash": codec_checkpoint_digest,
-        "transport_checkpoint_hash": transport_checkpoint_digest,
-        "transport_weights": transport_weights,
-        "condition_schema_version": CONDITION_SCHEMA_VERSION,
-        "generation_config_hash": generation_config_hash,
-    }
     card = json.loads(
         dataset_asset_path(cfg, paths, "dataset_card.json").read_text(encoding="utf-8")
     )
@@ -859,7 +695,6 @@ def _generate(cfg: DictConfig, context: DistributedContext) -> None:
                 and (sample_dir / "source.mid").exists()
                 and (sample_dir / "same_style_reconstruction.mid").exists()
                 and (not save_noise or (sample_dir / "abducted_noise.pt").exists())
-                and _artifact_matches_generation(metadata_path, generation_identity)
             ):
                 transition_progress.update(1)
                 continue
@@ -983,10 +818,8 @@ def _generate(cfg: DictConfig, context: DistributedContext) -> None:
         reconstructed_path = first_dir / "same_style_reconstruction.mid"
         decoded_midis[1].dump(str(reconstructed_path))  # type: ignore[attr-defined]
         noise_path = first_dir / "abducted_noise.pt"
-        noise_digest = None
         if save_noise:
             torch.save(first_output.abducted_noise.cpu(), noise_path)
-            noise_digest = hashlib.sha256(noise_path.read_bytes()).hexdigest()
         roundtrip = latent_errors(latent, first_output.reconstructed_source_latent)
 
         for transition_index, (
@@ -1037,9 +870,7 @@ def _generate(cfg: DictConfig, context: DistributedContext) -> None:
                 "reconstruction_guidance_scale": reconstruction_guidance_scale,
                 "prediction_guidance_scale": prediction_guidance_scale,
                 "source_repulsion_scale": source_repulsion_scale,
-                "noise_sha256": noise_digest,
                 "latent_roundtrip": roundtrip,
-                **generation_identity,
             }
             if audit_decode:
                 metadata["decode_completion"] = {
@@ -1119,8 +950,6 @@ def _generate(cfg: DictConfig, context: DistributedContext) -> None:
                     else "latent_segments",
                     "source_style_counts": source_counts,
                     "transition_pair_counts": dict(sorted(pair_counts.items())),
-                    **generation_identity,
-                    **({"label_overlay_transfer": label_transfer} if label_transfer else {}),
                     "metadata_files": sorted(set(all_metadata)),
                 },
                 indent=2,

@@ -201,7 +201,6 @@ def train_codec_steps(
     checkpoint_dir: Path,
     checkpoint_interval: int,
     config: Mapping[str, object],
-    provenance: Mapping[str, str],
     ema_decay: float | None = 0.9999,
     start_state: TrainState | None = None,
     resume_from: Path | None = None,
@@ -387,7 +386,6 @@ def train_codec_steps(
                             state=state,
                             ema=ema,
                             config=config,
-                            provenance=provenance,
                             extra_state={
                                 "selection": "validation_autoregressive_note_f1"
                                 if autoregressive_f1 is not None
@@ -418,7 +416,6 @@ def train_codec_steps(
                         state=state,
                         ema=ema,
                         config=config,
-                        provenance=provenance,
                     )
                 distributed_barrier(context)
             if state.global_step >= max_steps:

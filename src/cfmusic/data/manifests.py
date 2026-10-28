@@ -1,8 +1,7 @@
-"""Parquet manifest persistence and stable hashing."""
+"""Parquet manifest persistence."""
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Iterable, Mapping
 from itertools import islice
 from pathlib import Path
@@ -90,7 +89,3 @@ def write_manifest_batches(
 
 def read_manifest(path: Path) -> pd.DataFrame:
     return pd.read_parquet(path)
-
-
-def manifest_hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()

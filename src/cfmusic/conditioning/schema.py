@@ -1,9 +1,4 @@
-"""Typed, versioned conditional labels passed to shared transport models.
-
-There is deliberately only one constructor in this module.  Keeping condition
-semantics here prevents training and generation from silently activating a
-different set of embedding tables for the same piece of metadata.
-"""
+"""Conditional labels passed to the shared transport models."""
 
 from __future__ import annotations
 
@@ -14,7 +9,6 @@ from typing import Literal
 import torch
 from torch import Tensor
 
-CONDITION_SCHEMA_VERSION = "task-aware-v2"
 ConditionTask = Literal["genre", "emotion", "factorial", "style"]
 _TASK_IDS: dict[ConditionTask, int] = {
     "genre": 0,
@@ -180,35 +174,3 @@ def build_condition_batch(
         active_value, name=f"{mode}_id/style_id", device=device, batch_size=batch_size
     )
     return ConditionBatch(datasets, tasks, styles, genre_id=None, emotion_id=None)
-
-
-def condition_schema_provenance(*, task: str, factorial: bool) -> dict[str, str]:
-    mode = condition_task(task, factorial=factorial)
-    return {
-        "condition_schema_version": CONDITION_SCHEMA_VERSION,
-        "condition_task": mode,
-    }
-
-
-def validate_condition_checkpoint(
-    checkpoint: Mapping[str, object], *, task: str, factorial: bool
-) -> None:
-    """Reject checkpoints trained with the former contradictory condition schema."""
-
-    provenance = checkpoint.get("provenance")
-    recorded_version = checkpoint.get("condition_schema_version")
-    recorded_task: object | None = None
-    if isinstance(provenance, Mapping):
-        recorded_version = recorded_version or provenance.get("condition_schema_version")
-        recorded_task = provenance.get("condition_task")
-    expected = condition_schema_provenance(task=task, factorial=factorial)
-    if recorded_version != CONDITION_SCHEMA_VERSION:
-        raise ValueError(
-            "Transport checkpoint uses an old or unknown condition schema; retrain the "
-            "transport with task-aware-v2 before generation or resume"
-        )
-    if recorded_task != expected["condition_task"]:
-        raise ValueError(
-            f"Transport checkpoint condition task is {recorded_task!r}, but the run requires "
-            f"{expected['condition_task']!r}"
-        )

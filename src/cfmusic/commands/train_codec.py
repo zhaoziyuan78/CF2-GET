@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Iterable, Mapping
-from dataclasses import asdict
 from functools import partial
 from pathlib import Path
 from typing import cast
@@ -13,16 +10,14 @@ from typing import cast
 import hydra
 import pandas as pd
 import torch
-from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from cfmusic.codec.transformer_vae import TransformerVAE
-from cfmusic.config import CONFIG_DIR, config_mapping, prepare_config
+from cfmusic.config import CONFIG_DIR, config_mapping, prepare_config, seed_everything
 from cfmusic.data.collate import collate_token_batch
 from cfmusic.data.datasets import MidiTokenDataset
-from cfmusic.data.manifests import manifest_hash
 from cfmusic.data.samplers import (
     BatchSamplerProtocol,
     DatasetTemperatureLengthBatchSampler,
@@ -34,8 +29,6 @@ from cfmusic.distributed import (
     cleanup_distributed,
     initialize_distributed,
 )
-from cfmusic.paths import save_run_context
-from cfmusic.reproducibility import seed_everything
 from cfmusic.tokenization.factory import MidiTokenizer, tokenizer_from_config
 from cfmusic.training.checkpointing import resolve_resume_checkpoint
 from cfmusic.training.codec_trainer import train_codec_steps
@@ -82,10 +75,9 @@ def codec_from_config(cfg: DictConfig, tokenizer: MidiTokenizer) -> TransformerV
     )
 
 
-def _manifest(paths: dict[str, Path], data_cfg: DictConfig) -> tuple[pd.DataFrame, str]:
+def _manifest(paths: dict[str, Path], data_cfg: DictConfig) -> pd.DataFrame:
     names = list(data_cfg.datasets) if "datasets" in data_cfg else [str(data_cfg.name)]
     frames: list[pd.DataFrame] = []
-    digests: list[str] = []
     for dataset_id, name_value in enumerate(names):
         name = str(name_value)
         path = paths["processed_dir"] / name / "manifest.parquet"
@@ -94,10 +86,7 @@ def _manifest(paths: dict[str, Path], data_cfg: DictConfig) -> tuple[pd.DataFram
         frame = pd.read_parquet(path)
         frame["dataset_id"] = dataset_id
         frames.append(frame)
-        digests.append(manifest_hash(path))
-    return pd.concat(frames, ignore_index=True), hashlib.sha256(
-        "".join(digests).encode()
-    ).hexdigest()
+    return pd.concat(frames, ignore_index=True)
 
 
 def _validation_subset(frame: pd.DataFrame, *, samples: int, seed: int) -> pd.DataFrame:
@@ -125,15 +114,12 @@ def _validation_subset(frame: pd.DataFrame, *, samples: int, seed: int) -> pd.Da
 
 def _train(cfg: DictConfig, context: DistributedContext) -> None:
     paths = prepare_config(cfg)
-    run_dir = Path(HydraConfig.get().runtime.output_dir)
-    if context.is_main:
-        save_run_context(cfg, run_dir)
     training = cfg.codec.training
     seed_everything(int(training.seed))
     tokenizer = tokenizer_from_config(
         cfg.tokenizer, max_sequence_length=int(cfg.codec.max_sequence_length)
     )
-    frame, manifest_digest = _manifest(paths, cfg.data)
+    frame = _manifest(paths, cfg.data)
     if "raw_token_count" in frame and bool(training.get("drop_overlength", True)):
         overlength = frame["raw_token_count"].astype(int) > tokenizer.config.max_sequence_length
         if context.is_main and bool(overlength.any()):
@@ -237,9 +223,6 @@ def _train(cfg: DictConfig, context: DistributedContext) -> None:
     scheduler = warmup_cosine_scheduler(
         optimizer, warmup_steps=int(training.warmup_steps), max_steps=max_steps
     )
-    tokenizer_digest = hashlib.sha256(
-        json.dumps(asdict(tokenizer.config), sort_keys=True).encode()
-    ).hexdigest()
     checkpoint_dir = (
         paths["checkpoints_dir"] / str(cfg.experiment.name) / "codec" / str(cfg.data.name)
     )
@@ -299,7 +282,6 @@ def _train(cfg: DictConfig, context: DistributedContext) -> None:
             **config_mapping(cfg.codec),
             "tokenizer": config_mapping(cfg.tokenizer),
         },
-        provenance={"manifest_hash": manifest_digest, "tokenizer_hash": tokenizer_digest},
         ema_decay=float(training.ema.decay) if training.ema.enabled else None,
         resume_from=resume_checkpoint,
         distributed=context,

@@ -19,9 +19,8 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 
 from cfmusic.baselines.factory import baseline_model, roll_dataset
-from cfmusic.baselines.midi_vae import MIDIVAE, ROLL_SCHEMA
-from cfmusic.conditioning.schema import condition_schema_provenance
-from cfmusic.config import CONFIG_DIR, config_mapping, prepare_config
+from cfmusic.baselines.midi_vae import MIDIVAE
+from cfmusic.config import CONFIG_DIR, config_mapping, prepare_config, seed_everything
 from cfmusic.data.samplers import (
     ResumeBatchSampler,
     ShardBatchSampler,
@@ -35,17 +34,10 @@ from cfmusic.distributed import (
     maybe_no_sync,
     set_data_epoch,
 )
-from cfmusic.latent.compatibility import (
-    serialize_cache_metadata,
-    validate_latent_dataset,
-    validate_transport_cache_provenance,
-)
 from cfmusic.latent.dataset import LatentDataset
 from cfmusic.logging import MetricLogger
 from cfmusic.memory import autocast_context, peak_memory_gib
-from cfmusic.paths import save_run_context
 from cfmusic.progress import progress_bar
-from cfmusic.reproducibility import seed_everything
 from cfmusic.training.checkpointing import (
     load_checkpoint,
     resolve_resume_checkpoint,
@@ -90,8 +82,6 @@ def _train(cfg: DictConfig) -> None:
             raise ValueError("Early stopping must not begin during learning-rate warmup")
         checkpoint_dir = paths["checkpoints_dir"] / str(cfg.experiment.name) / "transport"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        if context.is_main:
-            save_run_context(cfg, checkpoint_dir)
         index = Path(str(cfg.data.latent_index))
         train_latents = LatentDataset(
             paths["latent_dir"] / str(cfg.data.name),
@@ -99,8 +89,6 @@ def _train(cfg: DictConfig) -> None:
             split="train",
             shard_cache_size=int(training.get("shard_cache_size", 4)),
         )
-        validate_latent_dataset(train_latents, codec_cfg=cfg.codec, dataset_name=str(cfg.data.name))
-        metadata = [train_latents.metadata]
         model = baseline_model(cfg.transport).to(context.device)
         direct = isinstance(model, MIDIVAE)
         dataset: Any = roll_dataset(train_latents, cfg, paths) if direct else train_latents
@@ -148,9 +136,6 @@ def _train(cfg: DictConfig) -> None:
         saved_extra = {}
         if resume:
             saved = torch.load(resume, map_location="cpu", weights_only=False, mmap=True)
-            validate_transport_cache_provenance(saved, metadata)
-            if saved["config"] != config_mapping(cfg.transport):
-                raise ValueError("Baseline resume configuration changed; use a new experiment name")
             state = load_checkpoint(
                 resume, model=model, optimizer=optimizer, scheduler=scheduler, scaler=scaler
             )
@@ -211,16 +196,6 @@ def _train(cfg: DictConfig) -> None:
             initial=state.global_step,
             unit="step",
         )
-        provenance = {
-            **condition_schema_provenance(task=str(cfg.data.task), factorial=False),
-            "latent_cache_metadata_json": serialize_cache_metadata(metadata),
-            "baseline": str(cfg.transport.name),
-            "representation": ROLL_SCHEMA if direct else "frozen_BEAT_latents",
-            "genre_vocabulary": json.dumps(
-                json.loads(Path(str(cfg.data.dataset_card)).read_text())["genre_vocabulary"]
-            ),
-        }
-
         def move(batch: dict[str, Any]) -> dict[str, Tensor]:
             return {
                 k: v.to(context.device) for k, v in batch.items() if isinstance(v, torch.Tensor)
@@ -380,7 +355,6 @@ def _train(cfg: DictConfig) -> None:
                                 state=state,
                                 ema=None,
                                 config=config_mapping(cfg.transport),
-                                provenance=provenance,
                                 extra_state=extra,
                             )
                         if logger:

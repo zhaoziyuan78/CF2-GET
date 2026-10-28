@@ -32,7 +32,6 @@ latent_cache:
   # Encoder-only batch size; experiment configs lower it for the 16-bar chunk VAE.
   batch_size_per_gpu: 384
   codec_weights: raw
-  verify_after_write: false
   dataloader_workers: 32  # total across all torchrun ranks
   prefetch_factor: 4
   midi_cache_size: 16

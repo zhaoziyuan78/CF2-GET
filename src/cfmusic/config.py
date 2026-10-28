@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import random
 from pathlib import Path
+
+import numpy as np
+import torch
 
 from omegaconf import DictConfig, OmegaConf, open_dict
 
@@ -26,6 +30,17 @@ def prepare_config(cfg: DictConfig) -> dict[str, Path]:
         for name, path in paths.items():
             print(f"  {name}: {path}")
     return paths
+
+
+def seed_everything(seed: int, *, deterministic: bool = False) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    if deterministic:
+        torch.use_deterministic_algorithms(True, warn_only=True)
+        torch.backends.cudnn.benchmark = False
 
 
 def dataset_asset_path(cfg: DictConfig, paths: dict[str, Path], name: str) -> Path:

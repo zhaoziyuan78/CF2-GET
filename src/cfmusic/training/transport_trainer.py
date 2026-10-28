@@ -700,7 +700,6 @@ def train_transport_steps(
     checkpoint_dir: Path,
     checkpoint_interval: int,
     config: Mapping[str, object],
-    provenance: Mapping[str, str],
     ema_decay: float | None = 0.9999,
     ema_update_interval: int = 10,
     log_interval: int = 10,
@@ -1123,7 +1122,6 @@ def train_transport_steps(
                         state=state,
                         ema=ema,
                         config=config,
-                        provenance=provenance,
                     )
                 distributed_barrier(context)
             if state.global_step >= max_steps:

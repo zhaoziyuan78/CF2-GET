@@ -32,33 +32,10 @@ class MidiTokenDataset(Dataset[dict[str, torch.Tensor | str | int]]):
         if midi_cache_size < 0:
             raise ValueError("midi_cache_size cannot be negative")
         frame = pd.read_parquet(manifest) if isinstance(manifest, Path) else manifest.copy()
-        tokenizer_type = getattr(tokenizer.vocabulary, "scheme", "bar_event")
-        if tokenizer_type == "beat" and not {
-            "tokenizer_type",
-            "tokenizer_version",
-        }.issubset(frame.columns):
-            raise ValueError(
-                "This manifest predates BEAT tokenization; rerun cfmusic.commands.prepare"
-            )
-        if "tokenizer_type" in frame:
-            manifest_types = set(frame["tokenizer_type"].dropna().astype(str))
-            if manifest_types and manifest_types != {tokenizer_type}:
-                raise ValueError(
-                    f"Manifest tokenizer {sorted(manifest_types)} does not match {tokenizer_type!r}"
-                )
-        expected_version = getattr(tokenizer.config, "implementation_version", None)
-        if expected_version is not None and "tokenizer_version" in frame:
-            manifest_versions = set(frame["tokenizer_version"].dropna().astype(str))
-            if manifest_versions and manifest_versions != {expected_version}:
-                raise ValueError(
-                    f"Manifest tokenizer version {sorted(manifest_versions)} does not match "
-                    f"{expected_version!r}"
-                )
         self.frame = frame.loc[(frame["split"] == split) & frame["valid"]].reset_index(drop=True)
         self.tokenizer = tokenizer
         self.midi_cache_size = midi_cache_size
         self._midi_cache: OrderedDict[Path, miditoolkit.MidiFile] = OrderedDict()
-        self._verified_sources: set[Path] = set()
 
     def __len__(self) -> int:
         return len(self.frame)
@@ -75,16 +52,6 @@ class MidiTokenDataset(Dataset[dict[str, torch.Tensor | str | int]]):
                     f"Cannot load source MIDI {midi_path} for segment "
                     f"{row.get('segment_id', index)!r}: {error}"
                 ) from error
-            if midi_path not in self._verified_sources and pd.notna(row.get("num_notes")):
-                expected_notes = int(row["num_notes"])
-                actual_notes = sum(len(instrument.notes) for instrument in midi.instruments)
-                if actual_notes != expected_notes:
-                    raise RuntimeError(
-                        f"Source MIDI changed after manifest creation: {midi_path} has "
-                        f"{actual_notes} notes, expected {expected_notes}. Restore the raw "
-                        "dataset or rerun preprocessing before training/caching."
-                    )
-                self._verified_sources.add(midi_path)
             if self.midi_cache_size:
                 self._midi_cache[midi_path] = midi
                 self._midi_cache.move_to_end(midi_path)

@@ -1,4 +1,4 @@
-"""Versioned sharded latent cache writer."""
+"""Sharded latent cache writer."""
 
 from __future__ import annotations
 
@@ -10,11 +10,7 @@ import pandas as pd
 import torch
 from torch import Tensor
 
-from cfmusic.latent.normalization import (
-    NORMALIZATION_SCHEMA_VERSION,
-    StreamingLatentStatistics,
-    save_statistics,
-)
+from cfmusic.latent.normalization import StreamingLatentStatistics, save_statistics
 from cfmusic.progress import progress_bar
 
 
@@ -25,7 +21,6 @@ def write_latent_cache(
     samples_per_shard: int = 4096,
     dtype: torch.dtype = torch.float16,
     metadata: dict[str, str],
-    verify_after_write: bool = False,
     finalize: bool = True,
 ) -> Path:
     if samples_per_shard <= 0:
@@ -55,10 +50,6 @@ def write_latent_cache(
         temporary = path.with_suffix(".pt.tmp")
         torch.save(payload, temporary)
         temporary.replace(path)
-        if verify_after_write:
-            restored = torch.load(path, map_location="cpu", weights_only=False)
-            if restored["latent"].shape != latents.shape or restored["metadata"] != metadata:
-                raise OSError(f"Latent shard verification failed: {path}")
         train_offsets = [
             offset for offset, item in enumerate(buffer) if str(item["split"]) == "train"
         ]
@@ -98,21 +89,16 @@ def write_latent_cache(
     index_path = destination / "index.parquet"
     pd.DataFrame(index_rows).to_parquet(index_path, index=False)
     if finalize:
-        normalization_hash = save_statistics(statistics.finalize(), destination)
-        _write_cache_metadata(destination, metadata, normalization_hash)
+        save_statistics(statistics.finalize(), destination)
+        _write_cache_metadata(destination, metadata)
     else:
         torch.save(statistics.state_dict(), destination / "partial_latent_stats.pt")
     return index_path
 
 
-def _write_cache_metadata(
-    destination: Path, metadata: dict[str, str], normalization_hash: str
-) -> None:
-    cache_metadata = dict(metadata)
-    cache_metadata["normalization_hash"] = normalization_hash
-    cache_metadata["normalization_schema_version"] = NORMALIZATION_SCHEMA_VERSION
+def _write_cache_metadata(destination: Path, metadata: dict[str, str]) -> None:
     (destination / "cache_metadata.json").write_text(
-        json.dumps(cache_metadata, indent=2, sort_keys=True), encoding="utf-8"
+        json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8"
     )
 
 
@@ -148,8 +134,8 @@ def finalize_latent_cache_partitions(
         statistics.merge_state_dict(partial)
         # Keep resumable partition state until the completed cache is published.
         # A failed finalization must not force re-encoding every partition.
-    normalization_hash = save_statistics(statistics.finalize(), destination)
-    _write_cache_metadata(destination, metadata, normalization_hash)
+    save_statistics(statistics.finalize(), destination)
+    _write_cache_metadata(destination, metadata)
     return index_path
 
 

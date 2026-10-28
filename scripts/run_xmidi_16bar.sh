@@ -3,12 +3,12 @@
 #   data -> 8-bar codec -> 16-bar windows -> 16-bar chunk VAE -> latent cache -> CLaMP3 labels
 #   -> OT-CFM+HSIC and baselines -> paired test (2,000 sources) -> evaluation -> report.
 #
-# Every stage is resumable: a stage is skipped when its output exists and it completed with
-# exactly the same command before. Run `bash scripts/run_xmidi_16bar.sh --dry-run` to print
-# the commands. Environment variables (defaults in brackets):
+# Finished stages are skipped on reruns (markers and logs in $CFMUSIC_OUTPUT_ROOT/logs).
+# Run `bash scripts/run_xmidi_16bar.sh --dry-run` to print the commands.
+# Environment variables (defaults in brackets):
 #   GPUS [8]                          GPUs per torchrun job (the recipe assumes 8)
 #   CFMUSIC_DATA_ROOT [<repo>/data]   raw/processed data, latent cache, labels
-#   CFMUSIC_OUTPUT_ROOT [<repo>]      checkpoints/, artifacts/, reports/, runs/
+#   CFMUSIC_OUTPUT_ROOT [<repo>]      checkpoints/, artifacts/, reports/, runs/, logs/
 #   CLAMP3_REPOSITORY [<repo>/external/clamp3]   installed by scripts/setup_clamp3.py
 #   ACCEPT_XMIDI_LICENSE [false]      set to true after reviewing the XMIDI terms
 #   METHODS [otcfm_hsic otcfm_no_hsic ddim ddim_cfg latent_midi_vae midi_vae]
@@ -24,33 +24,28 @@ METHODS=(${METHODS:-otcfm_hsic otcfm_no_hsic ddim ddim_cfg latent_midi_vae midi_
 PY=("${PYTHON:-python}")
 DDP=("${TORCHRUN:-torchrun}" --standalone "--nproc_per_node=$GPUS")
 CPU_WORKERS="${CPU_WORKERS:-8}"
-STATE="$OUT/reports/pipeline_state"
+LOGS="$OUT/logs"
 export CLAMP3_REPOSITORY="$CLAMP3" PYTHONUNBUFFERED=1 TOKENIZERS_PARALLELISM=false
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}" HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 DRY_RUN=false
 if (( $# )); then [[ $# == 1 && "$1" == --dry-run ]] || { echo "usage: $0 [--dry-run]" >&2; exit 2; }; DRY_RUN=true; fi
 (( 128 % GPUS == 0 && 64 % GPUS == 0 )) || { echo "GPUS must divide 64 (global codec batches)" >&2; exit 2; }
 [[ "$GPUS" == 8 ]] || echo "Warning: the published transport recipe uses 8 GPUs (global batch 768)." >&2
-if ! "$DRY_RUN"; then
-    mkdir -p "$STATE"
-    exec 9> "$STATE/pipeline.lock"
-    flock -n 9 || { echo "Pipeline already running" >&2; exit 1; }
-fi
+"$DRY_RUN" || mkdir -p "$LOGS"
 
 stage() {
-    local name="$1" expected="$2" signature
+    local name="$1" expected="$2"
     shift 2
-    signature=$(printf '%q ' "$@")
-    printf '\n[%s]\n%s\n' "$name" "$signature"
+    printf '\n[%s]\n%s\n' "$name" "$*"
     if "$DRY_RUN"; then return; fi
-    if [[ -s "$STATE/$name.done" && -e "$expected" && "$(< "$STATE/$name.done")" == "$signature" ]]; then
-        echo "Reuse completed stage $name"
+    if [[ -e "$LOGS/$name.done" ]]; then
+        echo "Skip finished stage $name"
         return
     fi
-    "$@" 2>&1 | tee "$STATE/$name.log"
-    (( PIPESTATUS[0] == 0 )) || { echo "Stage failed: $name (log: $STATE/$name.log)" >&2; return 1; }
+    "$@" 2>&1 | tee "$LOGS/$name.log"
+    (( PIPESTATUS[0] == 0 )) || { echo "Stage failed: $name (log: $LOGS/$name.log)" >&2; return 1; }
     [[ -e "$expected" ]] || { echo "Missing output of $name: $expected" >&2; return 1; }
-    printf '%s' "$signature" > "$STATE/$name.done"
+    touch "$LOGS/$name.done"
 }
 
 label_workers() {
@@ -58,11 +53,11 @@ label_workers() {
     for ((rank = 0; rank < GPUS; rank++)); do
         CUDA_VISIBLE_DEVICES="$rank" HIP_VISIBLE_DEVICES="$rank" "${PY[@]}" scripts/prepare_xmidi_16bar.py \
             label-worker --data-root "$DATA" --clamp3 "$CLAMP3" --rank "$rank" --workers 4 --batch-size 64 \
-            > "$STATE/label_worker_$rank.log" 2>&1 &
+            > "$LOGS/label_worker_$rank.log" 2>&1 &
         pids+=("$!")
     done
     for rank in "${!pids[@]}"; do
-        wait "${pids[$rank]}" || { echo "Label worker $rank failed: $STATE/label_worker_$rank.log" >&2; return 1; }
+        wait "${pids[$rank]}" || { echo "Label worker $rank failed: $LOGS/label_worker_$rank.log" >&2; return 1; }
     done
 }
 

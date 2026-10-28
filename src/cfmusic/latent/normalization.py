@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import torch
 from torch import Tensor
-
-NORMALIZATION_SCHEMA_VERSION = "per-token-v2"
-
 
 @dataclass(frozen=True)
 class LatentStatistics:
@@ -116,7 +112,7 @@ def compute_train_statistics(latents: Tensor) -> LatentStatistics:
     )
 
 
-def save_statistics(stats: LatentStatistics, directory: Path) -> str:
+def save_statistics(stats: LatentStatistics, directory: Path) -> None:
     mean = stats.mean.detach().cpu().contiguous()
     std = stats.std.detach().cpu().contiguous()
     if mean.ndim != 2 or mean.shape != std.shape:
@@ -124,28 +120,17 @@ def save_statistics(stats: LatentStatistics, directory: Path) -> str:
     directory.mkdir(parents=True, exist_ok=True)
     torch.save(mean, directory / "latent_mean.pt")
     torch.save(std, directory / "latent_std.pt")
-    digest = hashlib.sha256(
-        NORMALIZATION_SCHEMA_VERSION.encode() + mean.numpy().tobytes() + std.numpy().tobytes()
-    ).hexdigest()
     payload = {
         "train_samples": stats.count,
         "latent_tokens": mean.shape[0],
         "latent_dim": mean.shape[1],
         "normalization_shape": list(mean.shape),
-        "normalization_schema_version": NORMALIZATION_SCHEMA_VERSION,
-        "normalization_hash": digest,
     }
     (directory / "latent_stats.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return digest
 
 
 def load_statistics(directory: Path) -> LatentStatistics:
     payload = json.loads((directory / "latent_stats.json").read_text(encoding="utf-8"))
-    if payload.get("normalization_schema_version") != NORMALIZATION_SCHEMA_VERSION:
-        raise ValueError(
-            f"Latent cache uses obsolete normalization; rebuild it with "
-            f"{NORMALIZATION_SCHEMA_VERSION}"
-        )
     mean = torch.load(directory / "latent_mean.pt", weights_only=True)
     std = torch.load(directory / "latent_std.pt", weights_only=True)
     expected_shape = tuple(int(value) for value in payload.get("normalization_shape", ()))

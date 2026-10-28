@@ -5,6 +5,6 @@ chunk_size: 1048576
 timeout_seconds: 60
 datasets:
   xmidi:
-    source: {kind: google_drive, file_id: 1qDkSH31x7jN8X-2RyzB9wuxGji4QxYyA, archive_name: XMIDI_Dataset.zip, expected_sha256: null}
+    source: {kind: google_drive, file_id: 1qDkSH31x7jN8X-2RyzB9wuxGji4QxYyA, archive_name: XMIDI_Dataset.zip}
     official_page: https://github.com/xmusic-project/XMIDI_Dataset
     license: {name: UNKNOWN_VERIFY_WITH_DATASET_AUTHORS, requires_acknowledgement: true}

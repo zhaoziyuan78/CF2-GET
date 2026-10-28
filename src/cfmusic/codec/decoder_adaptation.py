@@ -6,7 +6,6 @@ import torch
 from torch import nn
 
 DECODER_PREFIXES = ("decoder.", "latent_projection.", "output.")
-SCHEMA = "cfmusic.decoder-denoising.v1"
 
 
 def decoder_parameter(name: str) -> bool:
@@ -31,11 +30,7 @@ def decoder_state(model: nn.Module) -> dict[str, torch.Tensor]:
     }
 
 
-def load_decoder_overlay(model: nn.Module, checkpoint: Mapping, *, base_codec_hash: str) -> None:
-    if checkpoint.get("schema") != SCHEMA:
-        raise ValueError("Unsupported decoder overlay schema")
-    if checkpoint.get("base_codec_hash") != base_codec_hash:
-        raise ValueError("Decoder overlay belongs to a different base codec/cache")
+def load_decoder_overlay(model: nn.Module, checkpoint: Mapping) -> None:
     state = checkpoint.get("decoder")
     expected = {name for name in model.state_dict() if decoder_parameter(name)}
     if not isinstance(state, Mapping) or set(state) != expected:

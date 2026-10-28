@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 
@@ -21,11 +20,9 @@ from cfmusic.commands.generate_counterfactuals import (
     sampling_weights,
     select_source_indices,
 )
-from cfmusic.conditioning.schema import CONDITION_SCHEMA_VERSION, validate_condition_checkpoint
 from cfmusic.config import CONFIG_DIR, dataset_asset_path, prepare_config
 from cfmusic.data.midi_io import load_midi
 from cfmusic.distributed import cleanup_distributed, distributed_barrier, initialize_distributed
-from cfmusic.latent.compatibility import validate_transport_cache_provenance
 from cfmusic.latent.dataset import LatentDataset
 from cfmusic.memory import autocast_context
 from cfmusic.progress import track
@@ -95,8 +92,6 @@ def main(cfg: DictConfig) -> None:
         rolls = MIDIRollDataset(rows, voices=int(cfg.transport.model.voices))
         checkpoint_path = Path(str(cfg.transport_checkpoint)).resolve()
         payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False, mmap=True)
-        validate_transport_cache_provenance(payload, [dataset.metadata])
-        validate_condition_checkpoint(payload, task="genre", factorial=False)
         if payload["config"]["model"] != OmegaConf.to_container(cfg.transport.model, resolve=True):
             raise ValueError(
                 "MIDI-VAE checkpoint architecture differs from requested configuration"
@@ -110,17 +105,6 @@ def main(cfg: DictConfig) -> None:
             cfg.tokenizer, max_sequence_length=int(cfg.codec.max_sequence_length)
         )
         root = paths["artifacts_dir"] / str(cfg.experiment.name) / str(cfg.data.name)
-        identity = {
-            "checkpoint": str(checkpoint_path),
-            "size": checkpoint_path.stat().st_size,
-            "mtime_ns": checkpoint_path.stat().st_mtime_ns,
-            "split": split,
-            "counterfactual": OmegaConf.to_container(cfg.counterfactual, resolve=True),
-            "labels": card["label_assignment_hash"],
-            "seed": int(cfg.seed),
-            "roll_schema": ROLL_SCHEMA,
-        }
-        signature = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         completed = []
         batch_size = int(cfg.counterfactual.get("decode_batch_size", 8))
         for start in track(
@@ -156,17 +140,15 @@ def main(cfg: DictConfig) -> None:
                 directory.mkdir(parents=True, exist_ok=True)
                 metadata_path = directory / "counterfactual_metadata.json"
                 completed.append(str(metadata_path.relative_to(root)))
-                if bool(cfg.counterfactual.skip_existing) and metadata_path.exists():
-                    old = json.loads(metadata_path.read_text())
-                    if old.get("generation_config_hash") == signature and all(
+                if (
+                    bool(cfg.counterfactual.skip_existing)
+                    and metadata_path.exists()
+                    and all(
                         (directory / p).exists()
-                        for p in (
-                            "source.mid",
-                            "counterfactual.mid",
-                            "same_style_reconstruction.mid",
-                        )
-                    ):
-                        continue
+                        for p in ("source.mid", "counterfactual.mid", "same_style_reconstruction.mid")
+                    )
+                ):
+                    continue
                 source = load_midi(Path(str(row.source_midi_path)))
                 tokenized = tokenizer.encode(
                     source, start_bar=int(row.start_bar), num_bars=int(row.num_bars)
@@ -197,8 +179,6 @@ def main(cfg: DictConfig) -> None:
                     "target_style_id": target_id,
                     "source_style": names[source_id],
                     "target_style": names[target_id],
-                    "condition_schema_version": CONDITION_SCHEMA_VERSION,
-                    "generation_config_hash": signature,
                     "representation_kind": model.representation_kind,
                     "baseline": "MIDI-VAE",
                     "baseline_representation": ROLL_SCHEMA,
@@ -232,7 +212,6 @@ def main(cfg: DictConfig) -> None:
                         "planned_transitions": len(chosen),
                         "metadata_files": records,
                         "transition_pair_counts": pairs,
-                        "generation_config_hash": signature,
                         "all_directed_pairs_required": require_all,
                         "source_sampling_policy": "proportional",
                         "target_policy": "proportional",

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from omegaconf import DictConfig
 
 from cfmusic.baselines.models import LatentMIDIVAE
@@ -12,41 +10,6 @@ from cfmusic.models.latent_denoiser import ConditionalLatentDenoiser
 from cfmusic.models.latent_vector_field import ConditionalVectorField
 from cfmusic.transport.conditional_ddim import DEFAULT_MIN_ALPHA_CUMPROD, ConditionalDDIM
 from cfmusic.transport.conditional_flow import ConditionalFlow
-
-
-def validate_guidance_checkpoint(
-    checkpoint: Mapping[str, object],
-    cfg: DictConfig,
-    *,
-    exact_training_match: bool,
-) -> None:
-    """Prevent CFG inference/resume with a checkpoint that never learned a null condition."""
-
-    requested = bool(cfg.get("classifier_free_guidance", False))
-    saved_config = checkpoint.get("config")
-    saved = (
-        bool(saved_config.get("classifier_free_guidance", False))
-        if isinstance(saved_config, Mapping)
-        else False
-    )
-    saved_dropout = (
-        float(saved_config.get("condition_dropout", 0.0))
-        if isinstance(saved_config, Mapping)
-        else 0.0
-    )
-    requested_dropout = float(cfg.get("condition_dropout", 0.0))
-    if requested and (not saved or saved_dropout <= 0):
-        raise ValueError(
-            "Classifier-free guidance requires a checkpoint trained with positive condition "
-            "dropout; disable CFG for this checkpoint or train the unified CFG recipe"
-        )
-    if exact_training_match and (
-        requested != saved or (requested and abs(requested_dropout - saved_dropout) > 1e-12)
-    ):
-        raise ValueError(
-            "Cannot resume with different classifier-free-guidance or condition-dropout "
-            "training settings; inference guidance scales may be changed safely"
-        )
 
 
 def _embedding(cfg: DictConfig) -> AdditiveConditionEmbedding:

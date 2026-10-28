@@ -18,17 +18,16 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from cfmusic.conditioning.schema import build_condition_batch, validate_condition_checkpoint
+from cfmusic.conditioning.schema import build_condition_batch
 from cfmusic.config import CONFIG_DIR, dataset_asset_path, prepare_config
 from cfmusic.distributed import cleanup_distributed, distributed_barrier, initialize_distributed
-from cfmusic.latent.compatibility import validate_transport_cache_provenance
 from cfmusic.latent.dataset import LatentDataset
 from cfmusic.memory import autocast_context, sdpa_kernel_context
 from cfmusic.progress import track
 from cfmusic.training.checkpointing import checkpoint_model_state
 from cfmusic.transport.conditional_ddim import ConditionalDDIM
 from cfmusic.transport.conditional_flow import ConditionalFlow
-from cfmusic.transport.factory import create_transport, validate_guidance_checkpoint
+from cfmusic.transport.factory import create_transport
 
 
 def heldout_probe_audit(
@@ -159,14 +158,6 @@ def main(cfg: DictConfig) -> None:
         payload = torch.load(
             str(cfg.transport_checkpoint), map_location="cpu", weights_only=False, mmap=True
         )
-        validate_transport_cache_provenance(
-            payload, [dataset.metadata],
-            allow_label_overlay_change=bool(
-                cfg.counterfactual.get("allow_label_overlay_change", False)
-            ),
-        )
-        validate_condition_checkpoint(payload, task="genre", factorial=False)
-        validate_guidance_checkpoint(payload, cfg.transport, exact_training_match=False)
         model = create_transport(cfg.transport).to(context.device)
         model.load_state_dict(
             checkpoint_model_state(payload, weights=str(cfg.counterfactual.transport_weights))

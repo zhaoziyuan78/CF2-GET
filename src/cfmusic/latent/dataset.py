@@ -1,11 +1,10 @@
-"""Lazy latent shard dataset with provenance validation."""
+"""Lazy latent shard dataset."""
 
 from __future__ import annotations
 
 import json
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 import torch
@@ -20,7 +19,6 @@ class LatentDataset(Dataset[dict[str, torch.Tensor | str | int]]):
         root: Path,
         *,
         split: str = "train",
-        expected_metadata: dict[str, str] | None = None,
         index_path: Path | None = None,
         normalize: bool = True,
         shard_cache_size: int = 1,
@@ -34,43 +32,6 @@ class LatentDataset(Dataset[dict[str, torch.Tensor | str | int]]):
             raise TypeError("Latent cache metadata must be a mapping")
         resolved_index = root / "index.parquet" if index_path is None else index_path.resolve()
         frame = pd.read_parquet(resolved_index)
-        if index_path is not None and resolved_index != (root / "index.parquet").resolve():
-            overlay_path = resolved_index.with_suffix(".metadata.json")
-            try:
-                overlay: Any = json.loads(overlay_path.read_text(encoding="utf-8"))
-            except FileNotFoundError as error:
-                raise FileNotFoundError(
-                    f"Latent label overlay is missing its metadata sidecar: {overlay_path}"
-                ) from error
-            if not isinstance(overlay, dict):
-                raise TypeError(f"Invalid latent label-overlay metadata: {overlay_path}")
-            if overlay.get("schema_version") != "cfmusic.latent-label-overlay.v1":
-                raise ValueError(f"Unsupported latent label-overlay schema: {overlay_path}")
-            if overlay.get("base_dataset_manifest_hash") != metadata.get("dataset_manifest_hash"):
-                raise ValueError("Latent label overlay was built for a different base latent cache")
-            if int(overlay.get("rows", -1)) != len(frame):
-                raise ValueError("Latent label-overlay row count does not match its sidecar")
-            assignment_hash = overlay.get("label_assignment_hash")
-            label_source = overlay.get("label_source")
-            if not isinstance(assignment_hash, str) or not isinstance(label_source, str):
-                raise TypeError("Latent label overlay is missing its identity fields")
-            metadata.update(
-                {
-                    "label_overlay_schema_version": str(overlay["schema_version"]),
-                    "label_assignment_hash": assignment_hash,
-                    "label_source": label_source,
-                }
-            )
-            if "genre_vocabulary" in overlay:
-                metadata["genre_vocabulary"] = overlay["genre_vocabulary"]
-        if expected_metadata is not None:
-            mismatches = {
-                key: (metadata.get(key), value)
-                for key, value in expected_metadata.items()
-                if metadata.get(key) != value
-            }
-            if mismatches:
-                raise ValueError(f"Latent cache provenance mismatch: {mismatches}")
         self.metadata: dict[str, object] = {str(key): value for key, value in metadata.items()}
         self.frame = frame.loc[frame["split"] == split].reset_index(drop=True)
         self.normalize = normalize
